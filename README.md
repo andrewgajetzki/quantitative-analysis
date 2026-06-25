@@ -10,16 +10,22 @@ The current toolkit focuses on chemical measurement calculations:
 - weight-percent solutions
 - simple unit conversions
 - limiting-reagent stoichiometry
+- buoyancy corrections for analytical balances
+- volumetric glassware and buret calibration
+- aqueous temperature corrections
+- serial dilution calculations
 
 ## Project Layout
 
 - `main.py` contains runnable examples that demonstrate the current modules.
 - `formula.py` parses formulas such as `H2SO4`, `Ca(NO3)2`, and `CuSO4.5H2O`.
 - `solutions.py` contains concentration and dilution helpers.
+- `measurements.py` contains analytical balance, temperature, and glassware calibration helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
 - `units.py` contains reusable unit converters.
 - `constants.py` contains atomic masses and scientific constants.
-- `tests/test_chem.py` verifies the reusable calculations.
+- `tests/test_chem.py` verifies chemistry calculations.
+- `tests/test_measurements.py` verifies balance, glassware, temperature, and calibration calculations.
 
 ## Run Examples
 
@@ -43,6 +49,7 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 
 ```python
 from formula import Formula
+from measurements import true_mass_from_apparent, water_density_g_per_ml
 from solutions import Solution, dilution_volume
 from stoichiometry import Reaction
 
@@ -61,6 +68,12 @@ print(stock_ml)
 reaction = Reaction.from_equation("2 H2 + O2 -> 2 H2O")
 result = reaction.limiting_reagent({"H2": 3.0, "O2": 1.0})
 print(result.limiting_species)
+
+true_mass = true_mass_from_apparent(
+    apparent_mass_g=5.3974,
+    object_density_g_per_ml=water_density_g_per_ml(25.0),
+)
+print(true_mass)
 ```
 
 ## Adding New Analysis Areas

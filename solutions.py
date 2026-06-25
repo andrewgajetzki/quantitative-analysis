@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterable
 
 from formula import Formula
+
+
+def solute_mass_for_molarity(solute_formula: str, molarity: float, solution_volume_l: float) -> float:
+    """Return grams of solute required for a target molarity and final volume."""
+    return Formula(solute_formula).grams_from_moles(molarity * solution_volume_l)
 
 
 def molarity_from_mass(solute_formula: str, solute_grams: float, solution_volume_l: float) -> float:
@@ -19,6 +25,35 @@ def dilution_volume(concentrated_molarity: float, dilute_molarity: float, dilute
     if dilute_molarity > concentrated_molarity:
         raise ValueError("dilute_molarity cannot exceed concentrated_molarity for a dilution.")
     return dilute_molarity * dilute_volume_ml / concentrated_molarity
+
+
+def concentration_after_dilution(
+    initial_concentration: float,
+    transfer_volume_ml: float,
+    final_volume_ml: float,
+) -> float:
+    """Return concentration after transferring aliquot to a final volume."""
+    if final_volume_ml <= 0:
+        raise ValueError("final_volume_ml must be positive.")
+    return initial_concentration * transfer_volume_ml / final_volume_ml
+
+
+def serial_dilution(
+    initial_concentration: float,
+    steps: Iterable[tuple[float, float]],
+) -> float:
+    """Return concentration after repeated aliquot-to-flask dilution steps.
+
+    Each step is ``(transfer_volume_ml, final_volume_ml)``.
+    """
+    concentration = initial_concentration
+    for transfer_volume_ml, final_volume_ml in steps:
+        concentration = concentration_after_dilution(
+            concentration,
+            transfer_volume_ml,
+            final_volume_ml,
+        )
+    return concentration
 
 
 @dataclass(frozen=True)

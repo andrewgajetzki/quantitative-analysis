@@ -1,4 +1,4 @@
-"""Small unit-conversion helper for chapter-one measurement problems."""
+"""Small unit-conversion helper for quantitative-analysis calculations."""
 
 from __future__ import annotations
 
