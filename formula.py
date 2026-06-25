@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
-from .constants import ATOMIC_MASSES
+from constants import ATOMIC_MASSES
 
 
 @dataclass(frozen=True)

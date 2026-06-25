@@ -1,8 +1,9 @@
 import unittest
 
-from quant_analysis.chem import Formula, Solution, dilution_volume, molarity_from_mass
-from quant_analysis.chem.stoichiometry import Reaction
-from quant_analysis.chem.units import mass, volume
+from formula import Formula
+from solutions import Solution, dilution_volume, molarity_from_mass
+from stoichiometry import Reaction
+from units import mass, volume
 
 
 class FormulaTests(unittest.TestCase):

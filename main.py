@@ -1,12 +1,12 @@
 """Examples for exploring quantitative-analysis calculations.
 
-The reusable code lives in ``quant_analysis.chem``. Keep this file as a
-scratchpad for textbook problems: import the helpers you need, name the
-example after the concept, and print the result with units.
+Keep this file as a scratchpad for textbook problems: import the helpers you
+need, name the example after the concept, and print the result with units.
 """
 
-from quant_analysis.chem import Formula, Solution, dilution_volume
-from quant_analysis.chem.stoichiometry import Reaction
+from formula import Formula
+from solutions import Solution, dilution_volume
+from stoichiometry import Reaction
 
 
 def demonstrate_solution_concepts() -> None:

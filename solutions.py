@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .formula import Formula
+from formula import Formula
 
 
 def molarity_from_mass(solute_formula: str, solute_grams: float, solution_volume_l: float) -> float:
