@@ -14,6 +14,9 @@ The current toolkit focuses on chemical measurement calculations:
 - volumetric glassware and buret calibration
 - aqueous temperature corrections
 - serial dilution calculations
+- significant-figure counting and rounding
+- experimental-error and uncertainty propagation
+- accuracy/precision and error-category vocabulary
 
 ## Project Layout
 
@@ -21,6 +24,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `formula.py` parses formulas such as `H2SO4`, `Ca(NO3)2`, and `CuSO4.5H2O`.
 - `solutions.py` contains concentration and dilution helpers.
 - `measurements.py` contains analytical balance, temperature, and glassware calibration helpers.
+- `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
 - `units.py` contains reusable unit converters.
 - `constants.py` contains atomic masses and scientific constants.
@@ -52,6 +56,7 @@ from formula import Formula
 from measurements import true_mass_from_apparent, water_density_g_per_ml
 from solutions import Solution, dilution_volume
 from stoichiometry import Reaction
+from uncertainty import Measurement, antilog10, format_measurement
 
 print(Formula("Ca(NO3)2").mass)
 
@@ -74,6 +79,12 @@ true_mass = true_mass_from_apparent(
     object_density_g_per_ml=water_density_g_per_ml(25.0),
 )
 print(true_mass)
+
+precipitate = Measurement(12.5296, 0.0003) - Measurement(12.4372, 0.0003)
+print(format_measurement(precipitate))
+
+hydrogen_ion = antilog10(-Measurement(4.44, 0.04))
+print(format_measurement(hydrogen_ion, uncertainty_figures=2))
 ```
 
 ## Adding New Analysis Areas

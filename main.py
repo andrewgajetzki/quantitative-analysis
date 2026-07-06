@@ -14,6 +14,13 @@ from measurements import (
 )
 from solutions import Solution, dilution_volume, serial_dilution, solute_mass_for_molarity
 from stoichiometry import Reaction
+from uncertainty import (
+    Measurement,
+    antilog10,
+    format_measurement,
+    format_significant_figures,
+    significant_figures,
+)
 
 
 def demonstrate_solution_concepts() -> None:
@@ -87,8 +94,23 @@ def demonstrate_preparation_and_dilution() -> None:
     print(f"  serial dilution result: {diluted:.3e} M")
 
 
+def demonstrate_experimental_error() -> None:
+    """Show significant-figure and uncertainty-propagation calculations."""
+    print("\nSignificant figures")
+    print(f"  figures in 1.40 x 10^4: {significant_figures('1.40 x 10^4')}")
+    print(f"  0.216500 rounded to 3 figures: {format_significant_figures('0.216500', 3)}")
+
+    precipitate = Measurement(12.5296, 0.0003) - Measurement(12.4372, 0.0003)
+    print("\nUncertainty propagation")
+    print(f"  precipitate mass: {format_measurement(precipitate)} g")
+
+    hydrogen_ion = antilog10(-Measurement(4.44, 0.04))
+    print(f"  [H+] from pH 4.44 +/- 0.04: {format_measurement(hydrogen_ion, 2)} M")
+
+
 if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()
+    demonstrate_experimental_error()

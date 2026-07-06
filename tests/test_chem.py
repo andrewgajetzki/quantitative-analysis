@@ -1,7 +1,7 @@
 import unittest
 
 from formula import Formula
-from solutions import Solution, dilution_volume, molarity_from_mass
+from solutions import Solution, dilution_volume, molarity_from_mass, serial_dilution, solute_mass_for_molarity
 from stoichiometry import Reaction
 from units import mass, volume
 
@@ -27,6 +27,13 @@ class SolutionTests(unittest.TestCase):
 
     def test_dilution_volume(self):
         self.assertAlmostEqual(dilution_volume(18.0, 1.00, 1000), 55.6, places=1)
+
+    def test_solute_mass_for_molarity(self):
+        self.assertAlmostEqual(solute_mass_for_molarity("K2SO4", 0.1500, 0.2500), 6.535, places=3)
+
+    def test_serial_dilution(self):
+        concentration = serial_dilution(0.001000, [(5.00, 100.0), (10.00, 250.0)])
+        self.assertAlmostEqual(concentration, 2.00e-6)
 
 
 class StoichiometryTests(unittest.TestCase):
