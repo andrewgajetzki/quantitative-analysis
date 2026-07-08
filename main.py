@@ -9,6 +9,11 @@ from measurements import (
     BuretCalibration,
     aqueous_molarity_at_temperature,
     apparent_mass_from_true,
+    compare_means_from_stats,
+    confidence_interval_mean,
+    grubbs_test,
+    linear_least_squares,
+    normal_probability_between,
     true_mass_from_apparent,
     water_density_g_per_ml,
 )
@@ -108,9 +113,34 @@ def demonstrate_experimental_error() -> None:
     print(f"  [H+] from pH 4.44 +/- 0.04: {format_measurement(hydrogen_ion, 2)} M")
 
 
+def demonstrate_statistics_and_calibration() -> None:
+    """Show statistics and calibration calculations."""
+    replicate_values = [116.0, 97.9, 114.2, 106.8, 108.3]
+    interval = confidence_interval_mean(replicate_values, confidence=0.90)
+    outlier = grubbs_test(replicate_values, confidence=0.90)
+    print("\nMeasurement statistics")
+    print(f"  90% confidence interval: {interval.center:.2f} +/- {interval.half_width:.2f}")
+    print(f"  Grubbs candidate: {outlier.outlier_value:.1f}, reject: {outlier.significant}")
+    print(f"  Gaussian fraction within +/-1 sigma: {normal_probability_between(-1, 1):.3f}")
+
+    comparison = compare_means_from_stats(1.392, 0.025, 4, 1.346, 0.039, 4)
+    print(f"  two-method t statistic: {comparison.statistic:.2f}, significant: {comparison.significant}")
+
+    fit = linear_least_squares(
+        [0.00, 9.36, 18.72, 28.08, 37.44],
+        [0.446, 0.676, 0.883, 1.086, 1.280],
+    )
+    prediction = fit.inverse_prediction(0.973, confidence=0.95)
+    prediction_interval = prediction.confidence_interval
+    print("\nCalibration curve")
+    print(f"  slope: {fit.slope:.5f}, intercept: {fit.intercept:.5f}")
+    print(f"  unknown x from response 0.973: {prediction.x_value:.2f} +/- {prediction_interval.half_width:.2f}")
+
+
 if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()
     demonstrate_experimental_error()
+    demonstrate_statistics_and_calibration()
