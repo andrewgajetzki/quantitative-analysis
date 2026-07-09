@@ -5,25 +5,43 @@ from measurements import (
     aqueous_molarity_at_temperature,
     apparent_mass_bias_percent,
     apparent_mass_from_true,
+    calibration_residuals,
     compare_means_from_stats,
     concentration_after_evaporation,
+    concentration_from_internal_standard,
+    control_chart_status,
+    control_limits,
     confidence_interval_mean,
+    detection_limit_concentration,
+    detection_limit_signal,
+    diluted_concentration,
+    dilution_factor,
     f_test_variances_from_stats,
     gravitational_reading_at_height,
     grubbs_test,
     ideal_gas_density_g_per_ml,
+    internal_standard_concentration_ratio_from_fit,
+    internal_standard_fit,
+    internal_standard_response_factor,
     inverse_linear_interpolate,
     linear_least_squares,
     log10_least_squares,
+    matrix_effect_percent,
     mean,
     normal_probability_between,
     one_sample_t_test,
+    original_concentration_from_dilution,
     paired_t_test,
+    percent_recovery,
     pooled_standard_deviation,
+    quantitation_limit_concentration,
+    quantitation_limit_signal,
     qcm_frequency_shift_hz,
     relative_humidity_percent,
     sample_standard_deviation,
+    single_standard_addition_concentration,
     standard_deviation_of_mean,
+    standard_addition_from_added_concentrations,
     surface_mass_from_loading,
     t_critical_two_tailed,
     true_mass_from_apparent,
@@ -186,6 +204,120 @@ class LinearCalibrationTests(unittest.TestCase):
         points = [(0.0, 0.10), (5.0, 0.32), (10.0, 0.61)]
 
         self.assertAlmostEqual(inverse_linear_interpolate(0.350, points), 5.5172, places=4)
+
+
+class QualityAssuranceCalibrationTests(unittest.TestCase):
+    def test_detection_and_quantitation_limits_from_blank_replicates(self):
+        blank_absorbances = [0.0002, 0.0002, 0.0005, 0.0001, 0.0008, 0.0001, 0.0007, 0.0001, 0.0001]
+        blank_mean = mean(blank_absorbances)
+
+        self.assertAlmostEqual(detection_limit_signal(blank_absorbances), 0.00115224, places=8)
+        self.assertAlmostEqual(quantitation_limit_signal(blank_absorbances), 0.00311488, places=8)
+        self.assertAlmostEqual(
+            detection_limit_concentration(
+                2.34e4,
+                intercept=blank_mean,
+                blank_values=blank_absorbances,
+            ),
+            3.5946e-8,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            quantitation_limit_concentration(
+                2.34e4,
+                intercept=blank_mean,
+                blank_values=blank_absorbances,
+            ),
+            1.1982e-7,
+            places=11,
+        )
+
+    def test_single_standard_addition_with_dilution(self):
+        nickel = single_standard_addition_concentration(
+            unknown_signal=2.36,
+            spiked_signal=3.79,
+            sample_volume=25.00,
+            standard_volume=0.500,
+            standard_concentration=0.0287,
+        )
+        copper = single_standard_addition_concentration(
+            unknown_signal=0.262,
+            spiked_signal=0.500,
+            sample_volume=95.0,
+            standard_volume=1.00,
+            standard_concentration=100.0,
+            final_volume=100.0,
+        )
+
+        self.assertAlmostEqual(nickel, 8.9961e-4, places=8)
+        self.assertAlmostEqual(copper, 1.0434, places=4)
+
+    def test_standard_addition_from_added_concentrations(self):
+        result = standard_addition_from_added_concentrations(
+            [0.0, 2.5, 5.0, 7.5, 10.0],
+            [28.0, 34.3, 42.8, 51.5, 58.6],
+        )
+
+        self.assertAlmostEqual(result.fit.slope, 3.1360, places=4)
+        self.assertAlmostEqual(result.x_intercept, -8.7245, places=4)
+        self.assertAlmostEqual(result.unknown_concentration, 8.7245, places=4)
+
+    def test_internal_standard_response_factor_and_unknown(self):
+        factor = internal_standard_response_factor(
+            analyte_signal=10222,
+            internal_standard_signal=8477,
+            analyte_concentration=3.47,
+            internal_standard_concentration=1.72,
+        )
+        internal_standard_final = diluted_concentration(4.31, aliquot_volume=5.00, final_volume=10.00)
+        unknown_final = concentration_from_internal_standard(5428, 4431, internal_standard_final, factor)
+
+        self.assertAlmostEqual(factor, 0.59771, places=5)
+        self.assertAlmostEqual(internal_standard_final, 2.155)
+        self.assertAlmostEqual(unknown_final, 4.4166, places=4)
+        self.assertAlmostEqual(
+            original_concentration_from_dilution(unknown_final, 5.00, 10.00),
+            8.8333,
+            places=4,
+        )
+
+    def test_internal_standard_fit_from_peak_area_ratios(self):
+        fit = internal_standard_fit(
+            analyte_concentrations=[1.0, 5.0, 10.0],
+            internal_standard_concentrations=[10.0, 10.0, 10.0],
+            analyte_signals=[503, 3519, 3023],
+            internal_standard_signals=[2992, 6141, 2919],
+        )
+        concentration_ratio = internal_standard_concentration_ratio_from_fit(fit, 0.652, 1.0)
+
+        self.assertAlmostEqual(fit.slope, 0.96232, places=5)
+        self.assertAlmostEqual(concentration_ratio, 0.59541, places=5)
+
+    def test_quality_control_helpers(self):
+        self.assertAlmostEqual(dilution_factor(5.00, 50.00), 10.0)
+        self.assertAlmostEqual(percent_recovery(0.39, 0.02, 0.40), 92.5)
+        self.assertAlmostEqual(matrix_effect_percent(0.82, 1.00), -18.0)
+        self.assertEqual(control_limits(100.0, 2.0), (94.0, 106.0))
+
+        warning = control_chart_status(105.0, center=100.0, standard_deviation=2.0)
+        out_of_control = control_chart_status(107.0, center=100.0, standard_deviation=2.0)
+        self.assertEqual(warning.status, "warning")
+        self.assertEqual(out_of_control.status, "out_of_control")
+
+    def test_calibration_residuals_for_linearity_checks(self):
+        fit = linear_least_squares(
+            [4, 10, 20, 40, 60, 90, 120, 160, 200, 240],
+            [540, 1352, 2481, 5065, 7470, 11111, 14502, 18674, 22196, 26196],
+        )
+        residuals = calibration_residuals(
+            [4, 10, 20, 40, 60, 90, 120, 160, 200, 240],
+            [540, 1352, 2481, 5065, 7470, 11111, 14502, 18674, 22196, 26196],
+            fit,
+        )
+
+        self.assertAlmostEqual(fit.r_squared, 0.99676, places=5)
+        self.assertAlmostEqual(residuals[0], -515.1344, places=4)
+        self.assertAlmostEqual(sum(residuals), 0.0, places=6)
 
 
 if __name__ == "__main__":

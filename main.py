@@ -10,10 +10,16 @@ from measurements import (
     aqueous_molarity_at_temperature,
     apparent_mass_from_true,
     compare_means_from_stats,
+    concentration_from_internal_standard,
     confidence_interval_mean,
+    control_chart_status,
+    detection_limit_concentration,
     grubbs_test,
+    internal_standard_response_factor,
     linear_least_squares,
     normal_probability_between,
+    single_standard_addition_concentration,
+    standard_addition_from_added_concentrations,
     true_mass_from_apparent,
     water_density_g_per_ml,
 )
@@ -137,6 +143,35 @@ def demonstrate_statistics_and_calibration() -> None:
     print(f"  unknown x from response 0.973: {prediction.x_value:.2f} +/- {prediction_interval.half_width:.2f}")
 
 
+def demonstrate_quality_assurance() -> None:
+    """Show quality-assurance and standard-addition calculations."""
+    blank_absorbances = [0.0002, 0.0002, 0.0005, 0.0001, 0.0008, 0.0001, 0.0007, 0.0001, 0.0001]
+    blank_mean = sum(blank_absorbances) / len(blank_absorbances)
+    detection_limit = detection_limit_concentration(
+        slope=2.34e4,
+        intercept=blank_mean,
+        blank_values=blank_absorbances,
+    )
+    print("\nQuality assurance")
+    print(f"  concentration detection limit: {detection_limit:.2e} M")
+
+    standard_addition = standard_addition_from_added_concentrations(
+        [0.0, 2.5, 5.0, 7.5, 10.0],
+        [28.0, 34.3, 42.8, 51.5, 58.6],
+    )
+    print(f"  standard-addition unknown: {standard_addition.unknown_concentration:.2f}")
+
+    nickel = single_standard_addition_concentration(2.36, 3.79, 25.00, 0.500, 0.0287)
+    print(f"  one-point Ni standard addition: {nickel:.3e} M")
+
+    factor = internal_standard_response_factor(10222, 8477, 3.47, 1.72)
+    unknown_final = concentration_from_internal_standard(5428, 4431, 2.155, factor)
+    print(f"  internal-standard unknown: {unknown_final:.2f}")
+
+    control = control_chart_status(105.0, center=100.0, standard_deviation=2.0)
+    print(f"  control-chart status: {control.status}")
+
+
 if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
@@ -144,3 +179,4 @@ if __name__ == "__main__":
     demonstrate_preparation_and_dilution()
     demonstrate_experimental_error()
     demonstrate_statistics_and_calibration()
+    demonstrate_quality_assurance()

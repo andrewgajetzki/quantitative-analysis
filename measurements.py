@@ -404,6 +404,26 @@ class LinearFitResult:
         return CalibrationPrediction(x_value, standard_uncertainty, interval)
 
 
+@dataclass(frozen=True)
+class StandardAdditionResult:
+    """Result from a standard-addition calibration."""
+
+    fit: LinearFitResult
+    x_intercept: float
+    unknown_concentration: float
+
+
+@dataclass(frozen=True)
+class ControlChartResult:
+    """Decision for one control-chart observation."""
+
+    value: float
+    center: float
+    standard_deviation: float
+    z_score: float
+    status: str
+
+
 def mean(values: Iterable[float]) -> float:
     """Return the arithmetic mean."""
     data = _as_tuple(values, "values")
@@ -443,6 +463,112 @@ def relative_standard_deviation_percent(values: Iterable[float]) -> float:
     if center == 0:
         raise ValueError("relative standard deviation is undefined for a zero mean.")
     return abs(sample_standard_deviation(data) / center) * 100.0
+
+
+def relative_error_percent(found_value: float, true_value: float) -> float:
+    """Return signed relative error as a percent."""
+    if true_value == 0:
+        raise ValueError("true_value cannot be zero.")
+    return (found_value - true_value) / true_value * 100.0
+
+
+def percent_recovery(found_spiked: float, found_unspiked: float, spike_added: float) -> float:
+    """Return percent recovery from a spike experiment."""
+    if spike_added == 0:
+        raise ValueError("spike_added cannot be zero.")
+    return (found_spiked - found_unspiked) / spike_added * 100.0
+
+
+def dilution_factor(aliquot_volume: float, final_volume: float) -> float:
+    """Return final volume divided by aliquot volume."""
+    if aliquot_volume <= 0:
+        raise ValueError("aliquot_volume must be positive.")
+    if final_volume <= 0:
+        raise ValueError("final_volume must be positive.")
+    return final_volume / aliquot_volume
+
+
+def diluted_concentration(initial_concentration: float, aliquot_volume: float, final_volume: float) -> float:
+    """Return concentration after diluting an aliquot to a final volume."""
+    return initial_concentration / dilution_factor(aliquot_volume, final_volume)
+
+
+def original_concentration_from_dilution(
+    diluted_value: float,
+    aliquot_volume: float,
+    final_volume: float,
+) -> float:
+    """Return original concentration before dilution."""
+    return diluted_value * dilution_factor(aliquot_volume, final_volume)
+
+
+def detection_limit_signal(
+    blank_values: Iterable[float] | None = None,
+    blank_mean: float | None = None,
+    blank_standard_deviation: float | None = None,
+    multiplier: float = 3.0,
+) -> float:
+    """Return signal at the detection limit, ``blank + multiplier * s_blank``."""
+    center, standard_deviation = _blank_mean_and_standard_deviation(
+        blank_values,
+        blank_mean,
+        blank_standard_deviation,
+    )
+    return center + multiplier * standard_deviation
+
+
+def quantitation_limit_signal(
+    blank_values: Iterable[float] | None = None,
+    blank_mean: float | None = None,
+    blank_standard_deviation: float | None = None,
+    multiplier: float = 10.0,
+) -> float:
+    """Return signal at the lower limit of quantitation."""
+    return detection_limit_signal(
+        blank_values,
+        blank_mean,
+        blank_standard_deviation,
+        multiplier,
+    )
+
+
+def detection_limit_concentration(
+    slope: float,
+    intercept: float = 0.0,
+    blank_values: Iterable[float] | None = None,
+    blank_mean: float | None = None,
+    blank_standard_deviation: float | None = None,
+    multiplier: float = 3.0,
+) -> float:
+    """Return concentration at the detection limit from a linear calibration."""
+    if slope == 0:
+        raise ValueError("slope cannot be zero.")
+    signal = detection_limit_signal(
+        blank_values,
+        blank_mean,
+        blank_standard_deviation,
+        multiplier,
+    )
+    return (signal - intercept) / slope
+
+
+def quantitation_limit_concentration(
+    slope: float,
+    intercept: float = 0.0,
+    blank_values: Iterable[float] | None = None,
+    blank_mean: float | None = None,
+    blank_standard_deviation: float | None = None,
+    multiplier: float = 10.0,
+) -> float:
+    """Return concentration at the lower limit of quantitation."""
+    return detection_limit_concentration(
+        slope,
+        intercept,
+        blank_values,
+        blank_mean,
+        blank_standard_deviation,
+        multiplier,
+    )
 
 
 def confidence_interval_mean(
@@ -805,6 +931,186 @@ def x_from_log10_calibration_y(fit: LinearFitResult, y_value: float) -> float:
     return 10 ** fit.x_at(math.log10(y_value))
 
 
+def calibration_residuals(
+    x_values: Iterable[float],
+    y_values: Iterable[float],
+    fit: LinearFitResult | None = None,
+) -> tuple[float, ...]:
+    """Return observed minus fitted responses for a calibration curve."""
+    x_data = _as_tuple(x_values, "x_values")
+    y_data = _as_tuple(y_values, "y_values")
+    if len(x_data) != len(y_data):
+        raise ValueError("x_values and y_values must have the same length.")
+    if fit is None:
+        fit = linear_least_squares(x_data, y_data)
+    return tuple(y_value - fit.y_at(x_value) for x_value, y_value in zip(x_data, y_data))
+
+
+def response_factor(signal: float, concentration: float) -> float:
+    """Return external-standard response factor, signal per concentration."""
+    if concentration == 0:
+        raise ValueError("concentration cannot be zero.")
+    return signal / concentration
+
+
+def concentration_from_response(signal: float, factor: float) -> float:
+    """Return concentration from signal and external-standard response factor."""
+    if factor == 0:
+        raise ValueError("factor cannot be zero.")
+    return signal / factor
+
+
+def internal_standard_response_factor(
+    analyte_signal: float,
+    internal_standard_signal: float,
+    analyte_concentration: float,
+    internal_standard_concentration: float,
+) -> float:
+    """Return internal-standard response factor."""
+    if internal_standard_signal == 0:
+        raise ValueError("internal_standard_signal cannot be zero.")
+    if analyte_concentration == 0:
+        raise ValueError("analyte_concentration cannot be zero.")
+    if internal_standard_concentration == 0:
+        raise ValueError("internal_standard_concentration cannot be zero.")
+    concentration_ratio = analyte_concentration / internal_standard_concentration
+    return (analyte_signal / internal_standard_signal) / concentration_ratio
+
+
+def concentration_from_internal_standard(
+    analyte_signal: float,
+    internal_standard_signal: float,
+    internal_standard_concentration: float,
+    factor: float,
+) -> float:
+    """Return analyte concentration from an internal-standard response factor."""
+    if internal_standard_signal == 0:
+        raise ValueError("internal_standard_signal cannot be zero.")
+    if factor == 0:
+        raise ValueError("factor cannot be zero.")
+    return (analyte_signal / internal_standard_signal) * internal_standard_concentration / factor
+
+
+def internal_standard_fit(
+    analyte_concentrations: Iterable[float],
+    internal_standard_concentrations: Iterable[float],
+    analyte_signals: Iterable[float],
+    internal_standard_signals: Iterable[float],
+) -> LinearFitResult:
+    """Fit signal ratio against concentration ratio for internal standards."""
+    concentration_ratios = _ratios(
+        analyte_concentrations,
+        internal_standard_concentrations,
+        "internal_standard_concentrations",
+    )
+    signal_ratios = _ratios(analyte_signals, internal_standard_signals, "internal_standard_signals")
+    return linear_least_squares(concentration_ratios, signal_ratios)
+
+
+def internal_standard_concentration_ratio_from_fit(
+    fit: LinearFitResult,
+    analyte_signal: float,
+    internal_standard_signal: float,
+) -> float:
+    """Return concentration ratio from fitted internal-standard calibration."""
+    if internal_standard_signal == 0:
+        raise ValueError("internal_standard_signal cannot be zero.")
+    return fit.x_at(analyte_signal / internal_standard_signal)
+
+
+def single_standard_addition_concentration(
+    unknown_signal: float,
+    spiked_signal: float,
+    sample_volume: float,
+    standard_volume: float,
+    standard_concentration: float,
+    final_volume: float | None = None,
+    same_final_volume_for_unknown: bool = False,
+) -> float:
+    """Return original unknown concentration from one standard addition."""
+    if sample_volume <= 0:
+        raise ValueError("sample_volume must be positive.")
+    if standard_volume <= 0:
+        raise ValueError("standard_volume must be positive.")
+    if final_volume is None:
+        final_volume = sample_volume + standard_volume
+    if final_volume <= 0:
+        raise ValueError("final_volume must be positive.")
+
+    added_amount = standard_concentration * standard_volume
+    if same_final_volume_for_unknown:
+        denominator = sample_volume * (spiked_signal - unknown_signal)
+    else:
+        denominator = spiked_signal * final_volume - unknown_signal * sample_volume
+    if denominator == 0:
+        raise ValueError("Signals and volumes produce a zero denominator.")
+    return unknown_signal * added_amount / denominator
+
+
+def standard_addition_from_added_concentrations(
+    added_concentrations: Iterable[float],
+    signals: Iterable[float],
+) -> StandardAdditionResult:
+    """Return unknown final concentration from a standard-addition line."""
+    fit = linear_least_squares(added_concentrations, signals)
+    if fit.slope == 0:
+        raise ValueError("standard-addition slope cannot be zero.")
+    x_intercept = -fit.intercept / fit.slope
+    return StandardAdditionResult(fit, x_intercept, -x_intercept)
+
+
+def standard_addition_from_added_volumes(
+    added_standard_volumes: Iterable[float],
+    signals: Iterable[float],
+    standard_concentration: float,
+    sample_volume: float,
+) -> StandardAdditionResult:
+    """Return original unknown concentration from added-standard volumes."""
+    if sample_volume <= 0:
+        raise ValueError("sample_volume must be positive.")
+    fit = linear_least_squares(added_standard_volumes, signals)
+    if fit.slope == 0:
+        raise ValueError("standard-addition slope cannot be zero.")
+    x_intercept = -fit.intercept / fit.slope
+    unknown_concentration = -x_intercept * standard_concentration / sample_volume
+    return StandardAdditionResult(fit, x_intercept, unknown_concentration)
+
+
+def matrix_effect_percent(matrix_matched_slope: float, external_slope: float) -> float:
+    """Return percent matrix effect from two calibration slopes."""
+    if external_slope == 0:
+        raise ValueError("external_slope cannot be zero.")
+    return (matrix_matched_slope / external_slope - 1.0) * 100.0
+
+
+def control_limits(center: float, standard_deviation: float, sigma: float = 3.0) -> tuple[float, float]:
+    """Return lower and upper control limits."""
+    if standard_deviation < 0:
+        raise ValueError("standard_deviation cannot be negative.")
+    return center - sigma * standard_deviation, center + sigma * standard_deviation
+
+
+def control_chart_status(
+    value: float,
+    center: float,
+    standard_deviation: float,
+    warning_sigma: float = 2.0,
+    action_sigma: float = 3.0,
+) -> ControlChartResult:
+    """Classify one control-chart value as in control, warning, or out of control."""
+    if standard_deviation <= 0:
+        raise ValueError("standard_deviation must be positive.")
+    z_score = (value - center) / standard_deviation
+    abs_z = abs(z_score)
+    if abs_z > action_sigma:
+        status = "out_of_control"
+    elif abs_z > warning_sigma:
+        status = "warning"
+    else:
+        status = "in_control"
+    return ControlChartResult(value, center, standard_deviation, z_score, status)
+
+
 def inverse_linear_interpolate(
     y_value: float,
     points: Iterable[tuple[float, float]],
@@ -992,6 +1298,36 @@ def _beta_continued_fraction(a_value: float, b_value: float, x_value: float) -> 
             return h_value
 
     raise RuntimeError("regularized beta continued fraction did not converge.")
+
+
+def _blank_mean_and_standard_deviation(
+    blank_values: Iterable[float] | None,
+    blank_mean: float | None,
+    blank_standard_deviation: float | None,
+) -> tuple[float, float]:
+    if blank_values is not None:
+        data = _as_tuple(blank_values, "blank_values")
+        _require_length(data, 2, "blank statistics")
+        return mean(data), sample_standard_deviation(data)
+    if blank_mean is None or blank_standard_deviation is None:
+        raise ValueError("Provide blank_values or both blank_mean and blank_standard_deviation.")
+    if blank_standard_deviation < 0:
+        raise ValueError("blank_standard_deviation cannot be negative.")
+    return blank_mean, blank_standard_deviation
+
+
+def _ratios(
+    numerators: Iterable[float],
+    denominators: Iterable[float],
+    denominator_name: str,
+) -> tuple[float, ...]:
+    numerator_data = _as_tuple(numerators, "numerators")
+    denominator_data = _as_tuple(denominators, denominator_name)
+    if len(numerator_data) != len(denominator_data):
+        raise ValueError("Numerators and denominators must have the same length.")
+    if any(value == 0 for value in denominator_data):
+        raise ValueError(f"{denominator_name} cannot contain zero.")
+    return tuple(numerator / denominator for numerator, denominator in zip(numerator_data, denominator_data))
 
 
 def _as_tuple(values: Iterable[float], name: str) -> tuple[float, ...]:

@@ -20,6 +20,9 @@ The current toolkit focuses on chemical measurement calculations:
 - descriptive statistics and confidence intervals
 - F tests, Student's t tests, and Grubbs outlier tests
 - least-squares calibration curves and inverse prediction
+- detection and quantitation limits
+- standard addition, internal standards, and response factors
+- spike recovery, dilution factors, matrix effects, and control-chart decisions
 
 ## Project Layout
 
@@ -57,8 +60,13 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 ```python
 from formula import Formula
 from measurements import (
+    concentration_from_internal_standard,
     confidence_interval_mean,
+    detection_limit_concentration,
+    internal_standard_response_factor,
     linear_least_squares,
+    single_standard_addition_concentration,
+    standard_addition_from_added_concentrations,
     true_mass_from_apparent,
     water_density_g_per_ml,
 )
@@ -104,6 +112,21 @@ fit = linear_least_squares(
 prediction = fit.inverse_prediction(0.973, confidence=0.95)
 prediction_interval = prediction.confidence_interval
 print(prediction.x_value, prediction_interval.lower, prediction_interval.upper)
+
+blank_absorbances = [0.0002, 0.0002, 0.0005, 0.0001, 0.0008, 0.0001, 0.0007, 0.0001, 0.0001]
+blank_mean = sum(blank_absorbances) / len(blank_absorbances)
+print(detection_limit_concentration(2.34e4, intercept=blank_mean, blank_values=blank_absorbances))
+
+print(single_standard_addition_concentration(2.36, 3.79, 25.00, 0.500, 0.0287))
+
+addition = standard_addition_from_added_concentrations(
+    [0.0, 2.5, 5.0, 7.5, 10.0],
+    [28.0, 34.3, 42.8, 51.5, 58.6],
+)
+print(addition.unknown_concentration)
+
+factor = internal_standard_response_factor(10222, 8477, 3.47, 1.72)
+print(concentration_from_internal_standard(5428, 4431, 2.155, factor))
 ```
 
 ## Adding New Analysis Areas
