@@ -6,14 +6,22 @@ after the concept, and print the result with units.
 
 from formula import Formula
 from equilibrium import (
+    classify_ph,
     complex_concentration_from_free,
+    delta_gas_moles,
     delta_g_standard_from_equilibrium_constant,
     equilibrium_constant_from_delta_g_standard,
     equilibrium_direction,
+    free_metal_from_total_metal,
     henry_law_concentration,
+    kp_from_kc,
     molar_solubility_from_ksp,
+    neutral_ph,
+    pressure_change_shift,
     reaction_quotient,
+    salt_solution_character,
     solve_equilibrium,
+    successive_to_cumulative_constants,
     weak_acid_ph,
     will_precipitate,
 )
@@ -87,6 +95,9 @@ def demonstrate_equilibrium() -> None:
     ice_result = solve_equilibrium({"A": 1.0, "B": 0.0}, {"B": 1, "A": -1}, 4.0)
     print(f"  ICE result for A <=> B, K = 4.0: [A] = {ice_result.concentrations['A']:.2f} M")
     print(f"  weak acid pH for 0.100 M HA, Ka = 1.8e-5: {weak_acid_ph(0.100, 1.8e-5):.3f}")
+    print(f"  neutral pH when Kw = 5.5e-13: {neutral_ph(5.5e-13):.3f}")
+    print(f"  pH 7.00 at that Kw is {classify_ph(7.00, 5.5e-13)}")
+    print(f"  NH4Cl salt character: {salt_solution_character(cation_ka=5.6e-10).character}")
 
     agcl_solubility = molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1})
     agcl_precipitate = will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1})
@@ -94,12 +105,19 @@ def demonstrate_equilibrium() -> None:
     print(f"  AgCl precipitates from 1.0e-4 M ions: {agcl_precipitate.precipitates}")
 
     complex_concentration = complex_concentration_from_free(1.0e-9, 0.10, 1.0e9, ligand_coefficient=2)
+    cumulative_betas = successive_to_cumulative_constants((1.0e2, 1.0e3, 1.0e4))
+    free_metal = free_metal_from_total_metal(0.0100, 0.10, cumulative_betas)
     equilibrium_constant = equilibrium_constant_from_delta_g_standard(-59_000.0, 298.15)
     delta_g_standard = delta_g_standard_from_equilibrium_constant(equilibrium_constant, 298.15)
+    gas_stoichiometry = {"NH3": 2, "N2": -1, "H2": -3}
+    kp = kp_from_kc(1.0e-3, delta_gas_moles(gas_stoichiometry), 500.0)
     dissolved_gas = henry_law_concentration(3.0e-8, 0.20)
     print(f"  complex concentration from Kf: {complex_concentration:.2e} M")
+    print(f"  free metal from cumulative beta values: {free_metal:.2e} M")
     print(f"  K from Delta G standard = -59.0 kJ/mol: {equilibrium_constant:.2e}")
     print(f"  round-trip Delta G standard: {delta_g_standard / 1000.0:.1f} kJ/mol")
+    print(f"  Kp from Kc for N2 + 3 H2 <=> 2 NH3: {kp:.2e}")
+    print(f"  pressure increase shift for 2 F2(g) -> CF4(g): {pressure_change_shift({'CF4': 1, 'F2': -2}, True)}")
     print(f"  Henry's law dissolved gas: {dissolved_gas:.2e} M")
 
 

@@ -26,6 +26,7 @@ The current toolkit focuses on chemical measurement calculations:
 - equilibrium constants, reaction quotients, and ICE-table equilibrium solving
 - pH, pOH, weak acid/base, conjugate Ka/Kb, buffer, and strong acid/base calculations
 - Ksp solubility, common-ion, precipitation, complex-ion, thermodynamic K, and Henry's law helpers
+- salt hydrolysis, polyprotic acid distributions, Kp/Kc, gas pressure quotients, and Le Chatelier shifts
 
 ## Project Layout
 
@@ -65,9 +66,12 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 ```python
 from formula import Formula
 from equilibrium import (
+    classify_ph,
     equilibrium_direction,
+    neutral_ph,
     molar_solubility_from_ksp,
     reaction_quotient,
+    salt_solution_character,
     weak_acid_ph,
     will_precipitate,
 )
@@ -145,6 +149,8 @@ q = reaction_quotient({"HI": 1.0, "H2": 0.10, "I2": 0.10}, hi_equilibrium)
 print(equilibrium_direction(q, equilibrium_constant=50.0))
 
 print(weak_acid_ph(0.100, 1.8e-5))
+print(neutral_ph(5.5e-13), classify_ph(7.00, 5.5e-13))
+print(salt_solution_character(cation_ka=5.6e-10).character)
 print(molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1}))
 print(will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1}))
 ```

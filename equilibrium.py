@@ -9,6 +9,7 @@ import math
 
 KW_25C = 1.0e-14
 R_J_PER_MOL_K = 8.314_462_618_153_24
+R_L_ATM_PER_MOL_K = 0.082_057
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,15 @@ class PrecipitationResult:
     ion_product: float
     ksp: float
     precipitates: bool
+
+
+@dataclass(frozen=True)
+class SaltHydrolysisResult:
+    """Predicted acidity/basicity of a salt from hydrolyzing ions."""
+
+    character: str
+    cation_ka: float | None = None
+    anion_kb: float | None = None
 
 
 def reaction_quotient(
@@ -72,6 +82,26 @@ def equilibrium_direction(
     return "reverse"
 
 
+def equilibrium_expression(stoichiometry: Mapping[str, float]) -> str:
+    """Return a compact concentration-expression string for K or Q.
+
+    Positive coefficients are products, negative coefficients are reactants.
+    Omit pure solids and liquids from ``stoichiometry`` before calling.
+    """
+    numerator = []
+    denominator = []
+    for species, coefficient in stoichiometry.items():
+        if coefficient > 0:
+            numerator.append(_expression_factor(species, coefficient))
+        elif coefficient < 0:
+            denominator.append(_expression_factor(species, -coefficient))
+    if not numerator:
+        numerator = ["1"]
+    if not denominator:
+        return " ".join(numerator)
+    return f"{' '.join(numerator)} / {' '.join(denominator)}"
+
+
 def combine_equilibrium_constants(*constants: tuple[float, float]) -> float:
     """Return the net K after reversing, scaling, or adding reactions.
 
@@ -83,6 +113,76 @@ def combine_equilibrium_constants(*constants: tuple[float, float]) -> float:
         _require_positive(equilibrium_constant, "equilibrium_constant")
         combined *= equilibrium_constant**multiplier
     return combined
+
+
+def delta_gas_moles(stoichiometry: Mapping[str, float]) -> float:
+    """Return change in moles of gas from gas-phase stoichiometry."""
+    return sum(stoichiometry.values())
+
+
+def kp_from_kc(
+    kc: float,
+    delta_moles_gas: float,
+    temperature_k: float,
+    gas_constant_l_atm: float = R_L_ATM_PER_MOL_K,
+) -> float:
+    """Return Kp from Kc using Kp = Kc(RT)^delta_n."""
+    _require_positive(kc, "kc")
+    _require_positive(temperature_k, "temperature_k")
+    _require_positive(gas_constant_l_atm, "gas_constant_l_atm")
+    return kc * (gas_constant_l_atm * temperature_k) ** delta_moles_gas
+
+
+def kc_from_kp(
+    kp: float,
+    delta_moles_gas: float,
+    temperature_k: float,
+    gas_constant_l_atm: float = R_L_ATM_PER_MOL_K,
+) -> float:
+    """Return Kc from Kp using Kc = Kp/(RT)^delta_n."""
+    _require_positive(kp, "kp")
+    _require_positive(temperature_k, "temperature_k")
+    _require_positive(gas_constant_l_atm, "gas_constant_l_atm")
+    return kp / (gas_constant_l_atm * temperature_k) ** delta_moles_gas
+
+
+def partial_pressures_from_moles(moles: Mapping[str, float], total_pressure: float) -> dict[str, float]:
+    """Return gas partial pressures from mole amounts and total pressure."""
+    _require_positive(total_pressure, "total_pressure")
+    total_moles = 0.0
+    for species, amount in moles.items():
+        _require_nonnegative(amount, f"moles for {species}")
+        total_moles += amount
+    _require_positive(total_moles, "total gas moles")
+    return {species: amount / total_moles * total_pressure for species, amount in moles.items()}
+
+
+def pressure_reaction_quotient(
+    partial_pressures: Mapping[str, float],
+    stoichiometry: Mapping[str, float],
+) -> float:
+    """Return Qp from gas partial pressures."""
+    return reaction_quotient(partial_pressures, stoichiometry)
+
+
+def pressure_change_shift(stoichiometry: Mapping[str, float], pressure_increases: bool) -> str:
+    """Return Le Chatelier shift for a pressure change in a gas reaction."""
+    product_moles = sum(coefficient for coefficient in stoichiometry.values() if coefficient > 0)
+    reactant_moles = sum(-coefficient for coefficient in stoichiometry.values() if coefficient < 0)
+    if math.isclose(product_moles, reactant_moles):
+        return "no_shift"
+    if pressure_increases:
+        return "forward" if product_moles < reactant_moles else "reverse"
+    return "forward" if product_moles > reactant_moles else "reverse"
+
+
+def temperature_change_shift(delta_h_j_per_mol: float, temperature_increases: bool) -> str:
+    """Return Le Chatelier shift for heating or cooling a reaction."""
+    if math.isclose(delta_h_j_per_mol, 0.0):
+        return "no_shift"
+    if temperature_increases:
+        return "forward" if delta_h_j_per_mol > 0 else "reverse"
+    return "forward" if delta_h_j_per_mol < 0 else "reverse"
 
 
 def solve_equilibrium(
@@ -183,6 +283,26 @@ def pkw(kw: float = KW_25C) -> float:
     return -math.log10(kw)
 
 
+def neutral_ph(kw: float = KW_25C) -> float:
+    """Return the neutral pH for a given Kw."""
+    return pkw(kw) / 2.0
+
+
+def neutral_poh(kw: float = KW_25C) -> float:
+    """Return the neutral pOH for a given Kw."""
+    return pkw(kw) / 2.0
+
+
+def classify_ph(ph: float, kw: float = KW_25C, tolerance: float = 1e-12) -> str:
+    """Classify pH as acidic, basic, or neutral for a given Kw."""
+    neutral = neutral_ph(kw)
+    if math.isclose(ph, neutral, rel_tol=tolerance, abs_tol=tolerance):
+        return "neutral"
+    if ph < neutral:
+        return "acidic"
+    return "basic"
+
+
 def poh_from_ph(ph: float, kw: float = KW_25C) -> float:
     """Return pOH from pH and Kw."""
     return pkw(kw) - ph
@@ -261,6 +381,67 @@ def conjugate_ka(kb: float, kw: float = KW_25C) -> float:
     return kw / kb
 
 
+def proton_transfer_equilibrium_constant(
+    reactant_acid_pka: float,
+    product_acid_pka: float,
+) -> float:
+    """Return K for HA + B <=> A- + HB+ from the two acid pKa values."""
+    return 10.0 ** (product_acid_pka - reactant_acid_pka)
+
+
+def proton_transfer_direction(
+    reactant_acid_pka: float,
+    product_acid_pka: float,
+    tolerance: float = 1e-12,
+) -> str:
+    """Return favored direction for HA + B <=> A- + HB+ from pKa values."""
+    equilibrium_constant = proton_transfer_equilibrium_constant(
+        reactant_acid_pka,
+        product_acid_pka,
+    )
+    return equilibrium_direction(1.0, equilibrium_constant, tolerance)
+
+
+def conjugate_base_hydrolysis_constants(
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    kw: float = KW_25C,
+) -> tuple[float, ...]:
+    """Return Kb values for a polyprotic acid's fully deprotonated conjugate base."""
+    _require_positive(kw, "kw")
+    constants = []
+    for ka in reversed(acid_dissociation_constants):
+        _require_positive(ka, "acid_dissociation_constant")
+        constants.append(kw / ka)
+    return tuple(constants)
+
+
+def salt_solution_character(
+    cation_ka: float | None = None,
+    anion_kb: float | None = None,
+    *,
+    tolerance: float = 1e-12,
+) -> SaltHydrolysisResult:
+    """Classify a salt solution from acidic cation and basic anion constants.
+
+    Pass ``None`` for ions that do not hydrolyze appreciably, such as alkali
+    cations or conjugate bases of strong acids.
+    """
+    if cation_ka is not None:
+        _require_nonnegative(cation_ka, "cation_ka")
+    if anion_kb is not None:
+        _require_nonnegative(anion_kb, "anion_kb")
+
+    acid_strength = cation_ka or 0.0
+    base_strength = anion_kb or 0.0
+    if math.isclose(acid_strength, base_strength, rel_tol=tolerance, abs_tol=tolerance):
+        character = "neutral"
+    elif acid_strength > base_strength:
+        character = "acidic"
+    else:
+        character = "basic"
+    return SaltHydrolysisResult(character, cation_ka, anion_kb)
+
+
 def weak_acid_hydrogen_concentration(formal_concentration: float, ka: float) -> float:
     """Return [H+] for HA <=> H+ + A- using the exact quadratic solution."""
     _require_positive(formal_concentration, "formal_concentration")
@@ -305,6 +486,45 @@ def buffer_ph(
     _require_positive(acid_concentration, "acid_concentration")
     _require_positive(conjugate_base_concentration, "conjugate_base_concentration")
     return pka + math.log10(conjugate_base_concentration / acid_concentration)
+
+
+def polyprotic_acid_distribution_fractions(
+    hydrogen_concentration: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+) -> tuple[float, ...]:
+    """Return alpha fractions for HnA, H(n-1)A, ..., A forms."""
+    _require_positive(hydrogen_concentration, "hydrogen_concentration")
+    if not acid_dissociation_constants:
+        return (1.0,)
+    n_constants = len(acid_dissociation_constants)
+    terms = []
+    cumulative_ka = 1.0
+    for deprotonations in range(n_constants + 1):
+        if deprotonations:
+            ka = acid_dissociation_constants[deprotonations - 1]
+            _require_positive(ka, "acid_dissociation_constant")
+            cumulative_ka *= ka
+        terms.append(cumulative_ka * hydrogen_concentration ** (n_constants - deprotonations))
+    denominator = sum(terms)
+    return tuple(term / denominator for term in terms)
+
+
+def polyprotic_species_concentrations(
+    total_concentration: float,
+    hydrogen_concentration: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    species_names: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, float]:
+    """Return concentrations for a polyprotic acid distribution."""
+    _require_nonnegative(total_concentration, "total_concentration")
+    fractions = polyprotic_acid_distribution_fractions(
+        hydrogen_concentration,
+        acid_dissociation_constants,
+    )
+    names = species_names or tuple(f"alpha{index}" for index in range(len(fractions)))
+    if len(names) != len(fractions):
+        raise ValueError("species_names length must match the number of acid species.")
+    return {name: total_concentration * fraction for name, fraction in zip(names, fractions)}
 
 
 def ion_product(
@@ -474,6 +694,73 @@ def complex_concentration_from_free(
     )
 
 
+def successive_to_cumulative_constants(stepwise_constants: list[float] | tuple[float, ...]) -> tuple[float, ...]:
+    """Return cumulative formation constants from stepwise constants."""
+    cumulative = []
+    running_product = 1.0
+    for constant in stepwise_constants:
+        _require_positive(constant, "stepwise formation constant")
+        running_product *= constant
+        cumulative.append(running_product)
+    return tuple(cumulative)
+
+
+def cumulative_to_stepwise_constants(cumulative_constants: list[float] | tuple[float, ...]) -> tuple[float, ...]:
+    """Return stepwise formation constants from cumulative constants."""
+    stepwise = []
+    previous = 1.0
+    for constant in cumulative_constants:
+        _require_positive(constant, "cumulative formation constant")
+        stepwise.append(constant / previous)
+        previous = constant
+    return tuple(stepwise)
+
+
+def complex_distribution_fractions(
+    free_ligand_concentration: float,
+    cumulative_formation_constants: list[float] | tuple[float, ...],
+) -> tuple[float, ...]:
+    """Return fractions for M, ML, ML2, ... from cumulative beta constants."""
+    _require_nonnegative(free_ligand_concentration, "free_ligand_concentration")
+    terms = [1.0]
+    for ligand_count, beta in enumerate(cumulative_formation_constants, start=1):
+        _require_positive(beta, "cumulative formation constant")
+        terms.append(beta * free_ligand_concentration**ligand_count)
+    denominator = sum(terms)
+    return tuple(term / denominator for term in terms)
+
+
+def complex_species_concentrations(
+    total_metal_concentration: float,
+    free_ligand_concentration: float,
+    cumulative_formation_constants: list[float] | tuple[float, ...],
+    species_names: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, float]:
+    """Return concentrations for M, ML, ML2, ... complex species."""
+    _require_nonnegative(total_metal_concentration, "total_metal_concentration")
+    fractions = complex_distribution_fractions(
+        free_ligand_concentration,
+        cumulative_formation_constants,
+    )
+    names = species_names or tuple(f"ML{index}" if index else "M" for index in range(len(fractions)))
+    if len(names) != len(fractions):
+        raise ValueError("species_names length must match the number of complex species.")
+    return {name: total_metal_concentration * fraction for name, fraction in zip(names, fractions)}
+
+
+def free_metal_from_total_metal(
+    total_metal_concentration: float,
+    free_ligand_concentration: float,
+    cumulative_formation_constants: list[float] | tuple[float, ...],
+) -> float:
+    """Return free metal concentration from total metal and cumulative beta constants."""
+    return complex_species_concentrations(
+        total_metal_concentration,
+        free_ligand_concentration,
+        cumulative_formation_constants,
+    )["M"]
+
+
 def delta_g(
     delta_g_standard_j_per_mol: float,
     reaction_quotient_value: float,
@@ -483,6 +770,25 @@ def delta_g(
     _require_positive(reaction_quotient_value, "reaction_quotient_value")
     _require_positive(temperature_k, "temperature_k")
     return delta_g_standard_j_per_mol + R_J_PER_MOL_K * temperature_k * math.log(reaction_quotient_value)
+
+
+def delta_g_from_enthalpy_entropy(
+    delta_h_j_per_mol: float,
+    delta_s_j_per_mol_k: float,
+    temperature_k: float,
+) -> float:
+    """Return Delta G = Delta H - T Delta S."""
+    _require_positive(temperature_k, "temperature_k")
+    return delta_h_j_per_mol - temperature_k * delta_s_j_per_mol_k
+
+
+def spontaneity_from_delta_g(delta_g_j_per_mol: float, tolerance: float = 1e-12) -> str:
+    """Return spontaneous direction from Delta G."""
+    if math.isclose(delta_g_j_per_mol, 0.0, rel_tol=tolerance, abs_tol=tolerance):
+        return "at_equilibrium"
+    if delta_g_j_per_mol < 0:
+        return "forward"
+    return "reverse"
 
 
 def equilibrium_constant_from_delta_g_standard(
@@ -502,6 +808,36 @@ def delta_g_standard_from_equilibrium_constant(
     _require_positive(equilibrium_constant, "equilibrium_constant")
     _require_positive(temperature_k, "temperature_k")
     return -R_J_PER_MOL_K * temperature_k * math.log(equilibrium_constant)
+
+
+def equilibrium_constant_from_delta_h_delta_s(
+    delta_h_j_per_mol: float,
+    delta_s_j_per_mol_k: float,
+    temperature_k: float,
+) -> float:
+    """Return K from Delta H and Delta S at a temperature."""
+    delta_g_standard = delta_g_from_enthalpy_entropy(
+        delta_h_j_per_mol,
+        delta_s_j_per_mol_k,
+        temperature_k,
+    )
+    return equilibrium_constant_from_delta_g_standard(delta_g_standard, temperature_k)
+
+
+def equilibrium_constant_at_temperature(
+    reference_equilibrium_constant: float,
+    reference_temperature_k: float,
+    target_temperature_k: float,
+    delta_h_j_per_mol: float,
+) -> float:
+    """Return K at a new temperature from the integrated van't Hoff equation."""
+    _require_positive(reference_equilibrium_constant, "reference_equilibrium_constant")
+    _require_positive(reference_temperature_k, "reference_temperature_k")
+    _require_positive(target_temperature_k, "target_temperature_k")
+    exponent = -delta_h_j_per_mol / R_J_PER_MOL_K * (
+        1.0 / target_temperature_k - 1.0 / reference_temperature_k
+    )
+    return reference_equilibrium_constant * math.exp(exponent)
 
 
 def henry_law_concentration(henry_constant: float, gas_pressure: float) -> float:
@@ -605,6 +941,17 @@ def _positive_coefficients(stoichiometry: Mapping[str, float]) -> dict[str, floa
 
 def _same_sign(left: float, right: float) -> bool:
     return (left > 0 and right > 0) or (left < 0 and right < 0)
+
+
+def _expression_factor(species: str, coefficient: float) -> str:
+    factor = f"[{species}]"
+    if math.isclose(coefficient, 1.0):
+        return factor
+    if float(coefficient).is_integer():
+        coefficient_text = str(int(coefficient))
+    else:
+        coefficient_text = str(coefficient)
+    return f"{factor}^{coefficient_text}"
 
 
 def _require_positive(value: float, name: str) -> None:
