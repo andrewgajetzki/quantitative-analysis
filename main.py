@@ -5,6 +5,18 @@ after the concept, and print the result with units.
 """
 
 from formula import Formula
+from equilibrium import (
+    complex_concentration_from_free,
+    delta_g_standard_from_equilibrium_constant,
+    equilibrium_constant_from_delta_g_standard,
+    equilibrium_direction,
+    henry_law_concentration,
+    molar_solubility_from_ksp,
+    reaction_quotient,
+    solve_equilibrium,
+    weak_acid_ph,
+    will_precipitate,
+)
 from measurements import (
     BuretCalibration,
     aqueous_molarity_at_temperature,
@@ -62,6 +74,33 @@ def demonstrate_stoichiometry() -> None:
     print("\nPrecipitation stoichiometry")
     print(f"  limiting species: {result.limiting_species}")
     print(f"  BaSO4 produced: {result.product_moles('BaSO4'):.4f} mol")
+
+
+def demonstrate_equilibrium() -> None:
+    """Show equilibrium, acid-base, solubility, and thermodynamic calculations."""
+    hi_equilibrium = {"HI": 2, "H2": -1, "I2": -1}
+    q_value = reaction_quotient({"HI": 1.0, "H2": 0.10, "I2": 0.10}, hi_equilibrium)
+    print("\nChemical equilibrium")
+    print(f"  Q for H2 + I2 <=> 2 HI: {q_value:.1f}")
+    print(f"  shift when K = 50.0: {equilibrium_direction(q_value, 50.0)}")
+
+    ice_result = solve_equilibrium({"A": 1.0, "B": 0.0}, {"B": 1, "A": -1}, 4.0)
+    print(f"  ICE result for A <=> B, K = 4.0: [A] = {ice_result.concentrations['A']:.2f} M")
+    print(f"  weak acid pH for 0.100 M HA, Ka = 1.8e-5: {weak_acid_ph(0.100, 1.8e-5):.3f}")
+
+    agcl_solubility = molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1})
+    agcl_precipitate = will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1})
+    print(f"  AgCl molar solubility: {agcl_solubility:.2e} M")
+    print(f"  AgCl precipitates from 1.0e-4 M ions: {agcl_precipitate.precipitates}")
+
+    complex_concentration = complex_concentration_from_free(1.0e-9, 0.10, 1.0e9, ligand_coefficient=2)
+    equilibrium_constant = equilibrium_constant_from_delta_g_standard(-59_000.0, 298.15)
+    delta_g_standard = delta_g_standard_from_equilibrium_constant(equilibrium_constant, 298.15)
+    dissolved_gas = henry_law_concentration(3.0e-8, 0.20)
+    print(f"  complex concentration from Kf: {complex_concentration:.2e} M")
+    print(f"  K from Delta G standard = -59.0 kJ/mol: {equilibrium_constant:.2e}")
+    print(f"  round-trip Delta G standard: {delta_g_standard / 1000.0:.1f} kJ/mol")
+    print(f"  Henry's law dissolved gas: {dissolved_gas:.2e} M")
 
 
 def demonstrate_measurement_corrections() -> None:
@@ -175,6 +214,7 @@ def demonstrate_quality_assurance() -> None:
 if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
+    demonstrate_equilibrium()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()
     demonstrate_experimental_error()

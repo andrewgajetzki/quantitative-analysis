@@ -23,18 +23,23 @@ The current toolkit focuses on chemical measurement calculations:
 - detection and quantitation limits
 - standard addition, internal standards, and response factors
 - spike recovery, dilution factors, matrix effects, and control-chart decisions
+- equilibrium constants, reaction quotients, and ICE-table equilibrium solving
+- pH, pOH, weak acid/base, conjugate Ka/Kb, buffer, and strong acid/base calculations
+- Ksp solubility, common-ion, precipitation, complex-ion, thermodynamic K, and Henry's law helpers
 
 ## Project Layout
 
 - `main.py` contains runnable examples that demonstrate the current modules.
 - `formula.py` parses formulas such as `H2SO4`, `Ca(NO3)2`, and `CuSO4.5H2O`.
 - `solutions.py` contains concentration and dilution helpers.
+- `equilibrium.py` contains chemical-equilibrium, acid-base, solubility, and thermodynamic helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
 - `units.py` contains reusable unit converters.
 - `constants.py` contains atomic masses and scientific constants.
 - `tests/test_chem.py` verifies chemistry calculations.
+- `tests/test_equilibrium.py` verifies equilibrium, acid-base, solubility, and thermodynamic calculations.
 - `tests/test_measurements.py` verifies balance, glassware, temperature, and calibration calculations.
 
 ## Run Examples
@@ -59,6 +64,13 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 
 ```python
 from formula import Formula
+from equilibrium import (
+    equilibrium_direction,
+    molar_solubility_from_ksp,
+    reaction_quotient,
+    weak_acid_ph,
+    will_precipitate,
+)
 from measurements import (
     concentration_from_internal_standard,
     confidence_interval_mean,
@@ -127,10 +139,16 @@ print(addition.unknown_concentration)
 
 factor = internal_standard_response_factor(10222, 8477, 3.47, 1.72)
 print(concentration_from_internal_standard(5428, 4431, 2.155, factor))
+
+hi_equilibrium = {"HI": 2, "H2": -1, "I2": -1}
+q = reaction_quotient({"HI": 1.0, "H2": 0.10, "I2": 0.10}, hi_equilibrium)
+print(equilibrium_direction(q, equilibrium_constant=50.0))
+
+print(weak_acid_ph(0.100, 1.8e-5))
+print(molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1}))
+print(will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1}))
 ```
 
 ## Adding New Analysis Areas
 
 Add reusable functions or classes in a focused module, then add short examples in `main.py`.
-For example, a future equilibrium topic could live in `equilibrium.py` with tests in
-`tests/test_equilibrium.py`.
