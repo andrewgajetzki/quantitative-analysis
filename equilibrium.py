@@ -40,6 +40,17 @@ class SaltHydrolysisResult:
 
 
 @dataclass(frozen=True)
+class BufferAdjustment:
+    """Strong reagent needed to move a buffer to a target pH."""
+
+    reagent: str
+    amount: float
+    acid_amount: float
+    conjugate_base_amount: float
+    ph: float
+
+
+@dataclass(frozen=True)
 class ChargeBalanceResult:
     """Charge-balance accounting in equivalents per liter."""
 
@@ -594,11 +605,45 @@ def hydrogen_from_hydroxide(hydroxide_concentration: float, kw: float = KW_25C) 
     return kw / hydroxide_concentration
 
 
-def strong_acid_ph(concentration: float, acidic_protons: float = 1.0) -> float:
-    """Return pH for a strong acid that fully dissociates."""
-    _require_positive(concentration, "concentration")
+def hydrogen_from_strong_acid(
+    concentration: float,
+    acidic_protons: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return [H+] for a fully dissociated acid, including water autoionization."""
+    _require_nonnegative(concentration, "concentration")
     _require_positive(acidic_protons, "acidic_protons")
-    return ph_from_hydrogen(concentration * acidic_protons)
+    _require_positive(kw, "kw")
+    strong_acid_concentration = concentration * acidic_protons
+    return (
+        strong_acid_concentration
+        + math.sqrt(strong_acid_concentration**2 + 4.0 * kw)
+    ) / 2.0
+
+
+def hydroxide_from_strong_base(
+    concentration: float,
+    hydroxides: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return [OH-] for a fully dissociated base, including water autoionization."""
+    _require_nonnegative(concentration, "concentration")
+    _require_positive(hydroxides, "hydroxides")
+    _require_positive(kw, "kw")
+    strong_base_concentration = concentration * hydroxides
+    return (
+        strong_base_concentration
+        + math.sqrt(strong_base_concentration**2 + 4.0 * kw)
+    ) / 2.0
+
+
+def strong_acid_ph(
+    concentration: float,
+    acidic_protons: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for a strong acid that fully dissociates."""
+    return ph_from_hydrogen(hydrogen_from_strong_acid(concentration, acidic_protons, kw))
 
 
 def strong_base_ph(
@@ -607,9 +652,8 @@ def strong_base_ph(
     kw: float = KW_25C,
 ) -> float:
     """Return pH for a strong base that fully dissociates."""
-    _require_positive(concentration, "concentration")
-    _require_positive(hydroxides, "hydroxides")
-    return ph_from_poh(poh_from_hydroxide(concentration * hydroxides), kw)
+    hydroxide = hydroxide_from_strong_base(concentration, hydroxides, kw)
+    return ph_from_poh(poh_from_hydroxide(hydroxide), kw)
 
 
 def ka_from_pka(pka: float) -> float:
@@ -721,6 +765,76 @@ def weak_acid_ph(formal_concentration: float, ka: float) -> float:
     return ph_from_hydrogen(weak_acid_hydrogen_concentration(formal_concentration, ka))
 
 
+def weak_acid_fraction_dissociated(formal_concentration: float, ka: float) -> float:
+    """Return the dissociated fraction alpha for a monoprotic weak acid."""
+    return weak_acid_hydrogen_concentration(formal_concentration, ka) / formal_concentration
+
+
+def weak_acid_ka_from_fraction_dissociated(
+    formal_concentration: float,
+    fraction_dissociated: float,
+    hydrogen_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
+    acid_activity_coefficient: float = 1.0,
+) -> float:
+    """Return thermodynamic Ka from formal concentration and acid dissociation fraction."""
+    _require_positive(formal_concentration, "formal_concentration")
+    _require_fraction_between_zero_and_one(fraction_dissociated, "fraction_dissociated")
+    coefficients = {
+        "H+": hydrogen_activity_coefficient,
+        "A-": conjugate_base_activity_coefficient,
+        "HA": acid_activity_coefficient,
+    }
+    concentration_ka = formal_concentration * fraction_dissociated**2 / (
+        1.0 - fraction_dissociated
+    )
+    return thermodynamic_equilibrium_constant(
+        concentration_ka,
+        {"H+": 1, "A-": 1, "HA": -1},
+        coefficients,
+    )
+
+
+def weak_acid_ka_from_ph(
+    formal_concentration: float,
+    ph: float,
+    hydrogen_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
+    acid_activity_coefficient: float = 1.0,
+) -> float:
+    """Return thermodynamic Ka for HA from formal concentration and measured pH."""
+    _require_positive(formal_concentration, "formal_concentration")
+    _require_positive(hydrogen_activity_coefficient, "hydrogen_activity_coefficient")
+    _require_positive(conjugate_base_activity_coefficient, "conjugate_base_activity_coefficient")
+    _require_positive(acid_activity_coefficient, "acid_activity_coefficient")
+    hydrogen_activity = hydrogen_activity_from_ph(ph)
+    hydrogen_concentration = hydrogen_activity / hydrogen_activity_coefficient
+    if hydrogen_concentration >= formal_concentration:
+        raise ValueError("hydrogen concentration from pH must be less than formal_concentration.")
+    conjugate_base_activity = conjugate_base_activity_coefficient * hydrogen_concentration
+    acid_activity = acid_activity_coefficient * (formal_concentration - hydrogen_concentration)
+    return hydrogen_activity * conjugate_base_activity / acid_activity
+
+
+def weak_acid_pka_from_ph(
+    formal_concentration: float,
+    ph: float,
+    hydrogen_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
+    acid_activity_coefficient: float = 1.0,
+) -> float:
+    """Return pKa for HA from formal concentration and measured pH."""
+    return pka_from_ka(
+        weak_acid_ka_from_ph(
+            formal_concentration,
+            ph,
+            hydrogen_activity_coefficient,
+            conjugate_base_activity_coefficient,
+            acid_activity_coefficient,
+        )
+    )
+
+
 def weak_acid_hydrogen_concentration_with_activity(
     formal_concentration: float,
     ka: float,
@@ -775,6 +889,79 @@ def weak_base_ph(formal_concentration: float, kb: float, kw: float = KW_25C) -> 
     return ph_from_poh(poh_from_hydroxide(hydroxide), kw)
 
 
+def weak_base_fraction_protonated(formal_concentration: float, kb: float) -> float:
+    """Return the fraction of a weak base converted to conjugate acid."""
+    return weak_base_hydroxide_concentration(formal_concentration, kb) / formal_concentration
+
+
+def weak_base_kb_from_fraction_protonated(
+    formal_concentration: float,
+    fraction_protonated: float,
+    conjugate_acid_activity_coefficient: float = 1.0,
+    hydroxide_activity_coefficient: float = 1.0,
+    base_activity_coefficient: float = 1.0,
+) -> float:
+    """Return thermodynamic Kb from formal concentration and base protonation fraction."""
+    _require_positive(formal_concentration, "formal_concentration")
+    _require_fraction_between_zero_and_one(fraction_protonated, "fraction_protonated")
+    coefficients = {
+        "BH+": conjugate_acid_activity_coefficient,
+        "OH-": hydroxide_activity_coefficient,
+        "B": base_activity_coefficient,
+    }
+    concentration_kb = formal_concentration * fraction_protonated**2 / (
+        1.0 - fraction_protonated
+    )
+    return thermodynamic_equilibrium_constant(
+        concentration_kb,
+        {"BH+": 1, "OH-": 1, "B": -1},
+        coefficients,
+    )
+
+
+def weak_base_kb_from_ph(
+    formal_concentration: float,
+    ph: float,
+    conjugate_acid_activity_coefficient: float = 1.0,
+    hydroxide_activity_coefficient: float = 1.0,
+    base_activity_coefficient: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return thermodynamic Kb for B from formal concentration and measured pH."""
+    _require_positive(formal_concentration, "formal_concentration")
+    _require_positive(conjugate_acid_activity_coefficient, "conjugate_acid_activity_coefficient")
+    _require_positive(hydroxide_activity_coefficient, "hydroxide_activity_coefficient")
+    _require_positive(base_activity_coefficient, "base_activity_coefficient")
+    hydroxide_activity = hydroxide_activity_from_poh(poh_from_ph(ph, kw))
+    hydroxide_concentration = hydroxide_activity / hydroxide_activity_coefficient
+    if hydroxide_concentration >= formal_concentration:
+        raise ValueError("hydroxide concentration from pH must be less than formal_concentration.")
+    conjugate_acid_activity = conjugate_acid_activity_coefficient * hydroxide_concentration
+    base_activity = base_activity_coefficient * (formal_concentration - hydroxide_concentration)
+    return conjugate_acid_activity * hydroxide_activity / base_activity
+
+
+def weak_base_pkb_from_ph(
+    formal_concentration: float,
+    ph: float,
+    conjugate_acid_activity_coefficient: float = 1.0,
+    hydroxide_activity_coefficient: float = 1.0,
+    base_activity_coefficient: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pKb for B from formal concentration and measured pH."""
+    return pkb_from_kb(
+        weak_base_kb_from_ph(
+            formal_concentration,
+            ph,
+            conjugate_acid_activity_coefficient,
+            hydroxide_activity_coefficient,
+            base_activity_coefficient,
+            kw,
+        )
+    )
+
+
 def weak_base_hydroxide_concentration_with_activity(
     formal_concentration: float,
     kb: float,
@@ -820,23 +1007,379 @@ def weak_base_ph_with_activity(
 
 def percent_ionization_weak_acid(formal_concentration: float, ka: float) -> float:
     """Return percent ionization for a monoprotic weak acid."""
-    return weak_acid_hydrogen_concentration(formal_concentration, ka) / formal_concentration * 100.0
+    return weak_acid_fraction_dissociated(formal_concentration, ka) * 100.0
 
 
 def percent_ionization_weak_base(formal_concentration: float, kb: float) -> float:
     """Return percent ionization for a weak base."""
-    return weak_base_hydroxide_concentration(formal_concentration, kb) / formal_concentration * 100.0
+    return weak_base_fraction_protonated(formal_concentration, kb) * 100.0
+
+
+def activity_coefficient_from_ph(concentration: float, ph: float) -> float:
+    """Return gamma_H from an analytical [H+] and measured pH."""
+    _require_positive(concentration, "concentration")
+    return hydrogen_activity_from_ph(ph) / concentration
+
+
+def conjugate_base_ph(formal_concentration: float, ka: float, kw: float = KW_25C) -> float:
+    """Return pH for a salt containing A-, the conjugate base of HA."""
+    return weak_base_ph(formal_concentration, conjugate_kb(ka, kw), kw)
+
+
+def conjugate_acid_ph(formal_concentration: float, kb: float, kw: float = KW_25C) -> float:
+    """Return pH for a salt containing BH+, the conjugate acid of B."""
+    return weak_acid_ph(formal_concentration, conjugate_ka(kb, kw))
 
 
 def buffer_ph(
     acid_concentration: float,
     conjugate_base_concentration: float,
     pka: float,
+    acid_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
 ) -> float:
     """Return buffer pH from the Henderson-Hasselbalch equation."""
     _require_positive(acid_concentration, "acid_concentration")
     _require_positive(conjugate_base_concentration, "conjugate_base_concentration")
-    return pka + math.log10(conjugate_base_concentration / acid_concentration)
+    _require_positive(acid_activity_coefficient, "acid_activity_coefficient")
+    _require_positive(conjugate_base_activity_coefficient, "conjugate_base_activity_coefficient")
+    return pka + math.log10(
+        conjugate_base_activity_coefficient
+        * conjugate_base_concentration
+        / (acid_activity_coefficient * acid_concentration)
+    )
+
+
+def buffer_ph_from_amounts(
+    acid_amount: float,
+    conjugate_base_amount: float,
+    pka: float,
+    acid_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
+) -> float:
+    """Return Henderson-Hasselbalch pH from acid/base amounts in the same volume."""
+    return buffer_ph(
+        acid_amount,
+        conjugate_base_amount,
+        pka,
+        acid_activity_coefficient,
+        conjugate_base_activity_coefficient,
+    )
+
+
+def target_buffer_base_acid_ratio(
+    target_ph: float,
+    pka: float,
+    acid_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
+) -> float:
+    """Return [base]/[acid] needed for a target Henderson-Hasselbalch pH."""
+    _require_positive(acid_activity_coefficient, "acid_activity_coefficient")
+    _require_positive(conjugate_base_activity_coefficient, "conjugate_base_activity_coefficient")
+    return (
+        10.0 ** (target_ph - pka)
+        * acid_activity_coefficient
+        / conjugate_base_activity_coefficient
+    )
+
+
+def strong_reagent_for_target_buffer_ph(
+    acid_amount: float,
+    conjugate_base_amount: float,
+    pka: float,
+    target_ph: float,
+    acid_activity_coefficient: float = 1.0,
+    conjugate_base_activity_coefficient: float = 1.0,
+) -> BufferAdjustment:
+    """Return strong acid/base amount needed to adjust an HA/A- buffer to target pH."""
+    _require_nonnegative(acid_amount, "acid_amount")
+    _require_nonnegative(conjugate_base_amount, "conjugate_base_amount")
+    if acid_amount == 0 and conjugate_base_amount == 0:
+        raise ValueError("At least one buffer component amount must be positive.")
+
+    target_ratio = target_buffer_base_acid_ratio(
+        target_ph,
+        pka,
+        acid_activity_coefficient,
+        conjugate_base_activity_coefficient,
+    )
+    if acid_amount == 0:
+        current_ratio = math.inf
+    else:
+        current_ratio = conjugate_base_amount / acid_amount
+
+    if math.isclose(current_ratio, target_ratio, rel_tol=1e-12, abs_tol=1e-15):
+        return BufferAdjustment(
+            "none",
+            0.0,
+            acid_amount,
+            conjugate_base_amount,
+            buffer_ph_from_amounts(
+                acid_amount,
+                conjugate_base_amount,
+                pka,
+                acid_activity_coefficient,
+                conjugate_base_activity_coefficient,
+            ),
+        )
+
+    if target_ratio < current_ratio:
+        amount = (conjugate_base_amount - target_ratio * acid_amount) / (1.0 + target_ratio)
+        acid_after = acid_amount + amount
+        base_after = conjugate_base_amount - amount
+        reagent = "strong_acid"
+    else:
+        amount = (target_ratio * acid_amount - conjugate_base_amount) / (1.0 + target_ratio)
+        acid_after = acid_amount - amount
+        base_after = conjugate_base_amount + amount
+        reagent = "strong_base"
+
+    return BufferAdjustment(
+        reagent,
+        max(amount, 0.0),
+        acid_after,
+        base_after,
+        buffer_ph_from_amounts(
+            acid_after,
+            base_after,
+            pka,
+            acid_activity_coefficient,
+            conjugate_base_activity_coefficient,
+        ),
+    )
+
+
+def buffer_ph_after_strong_acid(
+    acid_amount: float,
+    conjugate_base_amount: float,
+    pka: float,
+    strong_acid_amount: float,
+    final_volume_l: float | None = None,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH after adding strong acid to an HA/A- buffer."""
+    _require_nonnegative(acid_amount, "acid_amount")
+    _require_nonnegative(conjugate_base_amount, "conjugate_base_amount")
+    _require_nonnegative(strong_acid_amount, "strong_acid_amount")
+    ka = ka_from_pka(pka)
+    base_after = conjugate_base_amount - strong_acid_amount
+    acid_after = acid_amount + min(strong_acid_amount, conjugate_base_amount)
+    if base_after > 0:
+        return buffer_ph_from_amounts(acid_after, base_after, pka)
+    if final_volume_l is None:
+        raise ValueError("final_volume_l is required when strong acid exhausts the buffer base.")
+    _require_positive(final_volume_l, "final_volume_l")
+    if math.isclose(base_after, 0.0, rel_tol=0.0, abs_tol=1e-15):
+        return weak_acid_ph(acid_after / final_volume_l, ka)
+    return strong_acid_ph(-base_after / final_volume_l, kw=kw)
+
+
+def buffer_ph_after_strong_base(
+    acid_amount: float,
+    conjugate_base_amount: float,
+    pka: float,
+    strong_base_amount: float,
+    final_volume_l: float | None = None,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH after adding strong base to an HA/A- buffer."""
+    _require_nonnegative(acid_amount, "acid_amount")
+    _require_nonnegative(conjugate_base_amount, "conjugate_base_amount")
+    _require_nonnegative(strong_base_amount, "strong_base_amount")
+    ka = ka_from_pka(pka)
+    acid_after = acid_amount - strong_base_amount
+    base_after = conjugate_base_amount + min(strong_base_amount, acid_amount)
+    if acid_after > 0:
+        return buffer_ph_from_amounts(acid_after, base_after, pka)
+    if final_volume_l is None:
+        raise ValueError("final_volume_l is required when strong base exhausts the buffer acid.")
+    _require_positive(final_volume_l, "final_volume_l")
+    if math.isclose(acid_after, 0.0, rel_tol=0.0, abs_tol=1e-15):
+        return conjugate_base_ph(base_after / final_volume_l, ka, kw)
+    return strong_base_ph(-acid_after / final_volume_l, kw=kw)
+
+
+def strong_acid_base_mixture_ph(
+    strong_acid_amount: float,
+    strong_base_amount: float,
+    final_volume_l: float,
+    acidic_protons: float = 1.0,
+    hydroxides: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH after mixing fully dissociated strong acid and strong base."""
+    _require_nonnegative(strong_acid_amount, "strong_acid_amount")
+    _require_nonnegative(strong_base_amount, "strong_base_amount")
+    _require_positive(final_volume_l, "final_volume_l")
+    _require_positive(acidic_protons, "acidic_protons")
+    _require_positive(hydroxides, "hydroxides")
+    acid_equivalents = strong_acid_amount * acidic_protons
+    base_equivalents = strong_base_amount * hydroxides
+    if math.isclose(acid_equivalents, base_equivalents, rel_tol=1e-12, abs_tol=1e-15):
+        return neutral_ph(kw)
+    if acid_equivalents > base_equivalents:
+        return strong_acid_ph((acid_equivalents - base_equivalents) / final_volume_l, kw=kw)
+    return strong_base_ph((base_equivalents - acid_equivalents) / final_volume_l, kw=kw)
+
+
+def weak_acid_strong_base_mixture_ph(
+    weak_acid_amount: float,
+    strong_base_amount: float,
+    final_volume_l: float,
+    pka: float,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH after mixing HA with strong base."""
+    _require_nonnegative(weak_acid_amount, "weak_acid_amount")
+    _require_nonnegative(strong_base_amount, "strong_base_amount")
+    _require_positive(final_volume_l, "final_volume_l")
+    ka = ka_from_pka(pka)
+    if weak_acid_amount == 0:
+        return strong_base_ph(strong_base_amount / final_volume_l, kw=kw)
+    if strong_base_amount == 0:
+        return weak_acid_ph(weak_acid_amount / final_volume_l, ka)
+    if math.isclose(weak_acid_amount, strong_base_amount, rel_tol=1e-12, abs_tol=1e-15):
+        return conjugate_base_ph(weak_acid_amount / final_volume_l, ka, kw)
+    if strong_base_amount < weak_acid_amount:
+        return buffer_ph_from_amounts(
+            weak_acid_amount - strong_base_amount,
+            strong_base_amount,
+            pka,
+        )
+    return strong_base_ph((strong_base_amount - weak_acid_amount) / final_volume_l, kw=kw)
+
+
+def weak_base_strong_acid_mixture_ph(
+    weak_base_amount: float,
+    strong_acid_amount: float,
+    final_volume_l: float,
+    kb: float,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH after mixing B with strong acid."""
+    _require_nonnegative(weak_base_amount, "weak_base_amount")
+    _require_nonnegative(strong_acid_amount, "strong_acid_amount")
+    _require_positive(final_volume_l, "final_volume_l")
+    _require_positive(kb, "kb")
+    ka = conjugate_ka(kb, kw)
+    pka = pka_from_ka(ka)
+    if weak_base_amount == 0:
+        return strong_acid_ph(strong_acid_amount / final_volume_l, kw=kw)
+    if strong_acid_amount == 0:
+        return weak_base_ph(weak_base_amount / final_volume_l, kb, kw)
+    if math.isclose(weak_base_amount, strong_acid_amount, rel_tol=1e-12, abs_tol=1e-15):
+        return weak_acid_ph(weak_base_amount / final_volume_l, ka)
+    if strong_acid_amount < weak_base_amount:
+        return buffer_ph_from_amounts(
+            strong_acid_amount,
+            weak_base_amount - strong_acid_amount,
+            pka,
+        )
+    return strong_acid_ph((strong_acid_amount - weak_base_amount) / final_volume_l, kw=kw)
+
+
+def monoprotic_acid_charge_balance_ph(
+    total_acid_concentration: float,
+    ka: float,
+    strong_cation_concentration: float = 0.0,
+    strong_anion_concentration: float = 0.0,
+    kw: float = KW_25C,
+    *,
+    tolerance: float = 1e-12,
+    max_iterations: int = 200,
+) -> float:
+    """Return exact pH for an HA/A- system from mass and charge balance."""
+    _require_nonnegative(total_acid_concentration, "total_acid_concentration")
+    _require_positive(ka, "ka")
+    _require_nonnegative(strong_cation_concentration, "strong_cation_concentration")
+    _require_nonnegative(strong_anion_concentration, "strong_anion_concentration")
+    _require_positive(kw, "kw")
+
+    def residual(hydrogen: float) -> float:
+        hydroxide = kw / hydrogen
+        conjugate_base = total_acid_concentration * ka / (hydrogen + ka)
+        return (
+            hydrogen
+            + strong_cation_concentration
+            - hydroxide
+            - conjugate_base
+            - strong_anion_concentration
+        )
+
+    low = 1.0e-16
+    high = max(1.0, total_acid_concentration + strong_anion_concentration + 1.0)
+    while residual(low) > 0:
+        low /= 10.0
+    while residual(high) < 0:
+        high *= 10.0
+
+    for _ in range(max_iterations):
+        mid = (low + high) / 2.0
+        value = residual(mid)
+        if abs(value) <= tolerance or math.isclose(low, high, rel_tol=tolerance, abs_tol=tolerance):
+            return ph_from_hydrogen(mid)
+        if value < 0:
+            low = mid
+        else:
+            high = mid
+    return ph_from_hydrogen((low + high) / 2.0)
+
+
+def monoprotic_acid_mixture_ph(
+    weak_acid_amount: float,
+    conjugate_base_amount: float,
+    final_volume_l: float,
+    ka: float,
+    strong_acid_amount: float = 0.0,
+    strong_base_amount: float = 0.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return exact pH for HA/A- mixtures with optional strong acid/base additions."""
+    _require_nonnegative(weak_acid_amount, "weak_acid_amount")
+    _require_nonnegative(conjugate_base_amount, "conjugate_base_amount")
+    _require_nonnegative(strong_acid_amount, "strong_acid_amount")
+    _require_nonnegative(strong_base_amount, "strong_base_amount")
+    _require_positive(final_volume_l, "final_volume_l")
+    total_acid = (weak_acid_amount + conjugate_base_amount) / final_volume_l
+    strong_cation = (conjugate_base_amount + strong_base_amount) / final_volume_l
+    strong_anion = strong_acid_amount / final_volume_l
+    return monoprotic_acid_charge_balance_ph(
+        total_acid,
+        ka,
+        strong_cation,
+        strong_anion,
+        kw,
+    )
+
+
+def buffer_capacity(
+    total_buffer_concentration: float,
+    ka: float,
+    ph: float,
+    kw: float = KW_25C,
+    include_water: bool = True,
+) -> float:
+    """Return buffer capacity, moles of strong base per liter per pH unit."""
+    _require_nonnegative(total_buffer_concentration, "total_buffer_concentration")
+    _require_positive(ka, "ka")
+    _require_positive(kw, "kw")
+    hydrogen = hydrogen_from_ph(ph)
+    capacity = (
+        math.log(10.0)
+        * total_buffer_concentration
+        * ka
+        * hydrogen
+        / (ka + hydrogen) ** 2
+    )
+    if include_water:
+        capacity += math.log(10.0) * (hydrogen + kw / hydrogen)
+    return capacity
+
+
+def maximum_buffer_capacity(total_buffer_concentration: float) -> float:
+    """Return the maximum analytical HA/A- buffer capacity, reached near pH = pKa."""
+    _require_nonnegative(total_buffer_concentration, "total_buffer_concentration")
+    return math.log(10.0) * total_buffer_concentration / 4.0
 
 
 def polyprotic_acid_distribution_fractions(
@@ -1489,3 +2032,8 @@ def _require_positive(value: float, name: str) -> None:
 def _require_nonnegative(value: float, name: str) -> None:
     if value < 0:
         raise ValueError(f"{name} must be nonnegative.")
+
+
+def _require_fraction_between_zero_and_one(value: float, name: str) -> None:
+    if value <= 0 or value >= 1:
+        raise ValueError(f"{name} must be greater than 0 and less than 1.")

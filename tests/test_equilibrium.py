@@ -2,15 +2,22 @@ import math
 import unittest
 
 from equilibrium import (
+    activity_coefficient_from_ph,
     activity_product,
     activity_reaction_quotient,
     buffer_ph,
+    buffer_capacity,
+    buffer_ph_after_strong_acid,
+    buffer_ph_after_strong_base,
+    buffer_ph_from_amounts,
     charge_balance,
     classify_ph,
     combine_equilibrium_constants,
     complex_concentration_from_free,
     complex_distribution_fractions,
     complex_species_concentrations,
+    conjugate_acid_ph,
+    conjugate_base_ph,
     conjugate_base_hydrolysis_constants,
     conjugate_kb,
     delta_g_from_enthalpy_entropy,
@@ -33,6 +40,7 @@ from equilibrium import (
     henry_law_concentration,
     henry_law_pressure,
     hydrogen_from_ph,
+    hydrogen_from_strong_acid,
     interpolate_activity_coefficient,
     ion_product,
     ionic_strength,
@@ -40,6 +48,8 @@ from equilibrium import (
     ksp_from_molar_solubility,
     ksp_from_molar_solubility_with_activity,
     mass_balance,
+    maximum_buffer_capacity,
+    monoprotic_acid_mixture_ph,
     molar_solubility_from_ksp,
     molar_solubility_from_ksp_with_activity,
     molar_solubility_with_common_ions,
@@ -62,13 +72,23 @@ from equilibrium import (
     spontaneity_from_delta_g,
     successive_to_cumulative_constants,
     strong_acid_ph,
+    strong_acid_base_mixture_ph,
     strong_base_ph,
+    strong_reagent_for_target_buffer_ph,
+    target_buffer_base_acid_ratio,
     temperature_change_shift,
     weak_acid_hydrogen_concentration,
+    weak_acid_fraction_dissociated,
+    weak_acid_ka_from_fraction_dissociated,
     weak_acid_ph,
+    weak_acid_pka_from_ph,
+    weak_acid_strong_base_mixture_ph,
     weak_acid_ph_with_activity,
     weak_base_hydroxide_concentration,
+    weak_base_fraction_protonated,
+    weak_base_kb_from_ph,
     weak_base_ph,
+    weak_base_strong_acid_mixture_ph,
     weak_base_ph_with_activity,
     will_precipitate,
     will_precipitate_with_activity,
@@ -192,17 +212,35 @@ class AcidBaseTests(unittest.TestCase):
         self.assertAlmostEqual(ph_from_hydrogen_concentration_activity(0.0100, 0.83), 2.0809219076239263)
         self.assertAlmostEqual(ph_from_hydroxide_concentration_activity(0.0100, 0.76), 11.880813592280791)
 
+    def test_dilute_strong_acid_and_activity_from_ph(self):
+        self.assertAlmostEqual(hydrogen_from_strong_acid(1.0e-8, acidic_protons=2), 1.1050e-7, places=11)
+        self.assertAlmostEqual(strong_acid_ph(1.0e-8, acidic_protons=2), 6.9566, places=4)
+        self.assertAlmostEqual(activity_coefficient_from_ph(0.100, 1.092), 0.8091, places=4)
+
     def test_weak_acid_helpers(self):
         hydrogen = weak_acid_hydrogen_concentration(0.100, 1.8e-5)
 
         self.assertAlmostEqual(hydrogen, 0.001332670973077975)
         self.assertAlmostEqual(weak_acid_ph(0.100, 1.8e-5), 2.875, places=3)
+        self.assertAlmostEqual(weak_acid_fraction_dissociated(0.100, 1.0e-5), 0.0099501, places=7)
+        self.assertAlmostEqual(
+            weak_acid_ka_from_fraction_dissociated(0.0450, 0.0060),
+            1.6298e-6,
+            places=10,
+        )
+        self.assertAlmostEqual(weak_acid_pka_from_ph(0.0450, 2.78), 4.1969, places=4)
 
     def test_weak_base_helpers(self):
         hydroxide = weak_base_hydroxide_concentration(0.100, 1.8e-5)
 
         self.assertAlmostEqual(hydroxide, 0.001332670973077975)
         self.assertAlmostEqual(weak_base_ph(0.100, 1.8e-5), 11.125, places=3)
+        self.assertAlmostEqual(weak_base_fraction_protonated(0.100, 1.0e-5), 0.0099501, places=7)
+        self.assertAlmostEqual(weak_base_kb_from_ph(0.100, 11.0), 1.0101e-5, places=9)
+
+    def test_conjugate_salt_ph_helpers(self):
+        self.assertAlmostEqual(conjugate_acid_ph(0.100, 1.0e-4), 5.5000, places=4)
+        self.assertAlmostEqual(conjugate_base_ph(0.100, 1.75e-5), 8.8785, places=4)
 
     def test_weak_acid_and_base_activity_corrections(self):
         self.assertAlmostEqual(weak_acid_ph_with_activity(0.100, 1.8e-5, 0.83, 0.76), 2.8568995838485494)
@@ -214,6 +252,35 @@ class AcidBaseTests(unittest.TestCase):
         self.assertAlmostEqual(ka * conjugate_kb(ka), 1.0e-14)
         self.assertAlmostEqual(buffer_ph(0.20, 0.20, 4.76), 4.76)
         self.assertAlmostEqual(buffer_ph(0.10, 1.0, 4.76), 5.76)
+        self.assertAlmostEqual(buffer_ph(0.20, 0.20, 4.76, conjugate_base_activity_coefficient=0.80), 4.6631, places=4)
+
+    def test_buffer_stoichiometry_and_capacity_helpers(self):
+        self.assertAlmostEqual(buffer_ph_from_amounts(0.020, 0.030, 4.76), 4.9361, places=4)
+        self.assertAlmostEqual(buffer_ph_after_strong_acid(0.050, 0.050, 4.76, 0.010), 4.5839, places=4)
+        self.assertAlmostEqual(buffer_ph_after_strong_base(0.050, 0.050, 4.76, 0.010), 4.9361, places=4)
+        self.assertAlmostEqual(weak_acid_strong_base_mixture_ph(0.050, 0.030, 1.0, 4.76), 4.9361, places=4)
+        self.assertAlmostEqual(weak_base_strong_acid_mixture_ph(0.020, 0.010, 1.0, 1.0e-5), 9.0)
+        self.assertAlmostEqual(strong_acid_base_mixture_ph(0.020, 0.020, 1.0), 7.0)
+
+        target_ratio = target_buffer_base_acid_ratio(7.45, 7.55)
+        self.assertAlmostEqual(target_ratio, 0.79433, places=5)
+        adjustment = strong_reagent_for_target_buffer_ph(0.0125, 0.0, 7.55, 7.45)
+        self.assertEqual(adjustment.reagent, "strong_base")
+        self.assertAlmostEqual(adjustment.amount, 0.0055336, places=7)
+        self.assertAlmostEqual(adjustment.ph, 7.45)
+
+        ka = ka_from_pka(4.76)
+        self.assertAlmostEqual(buffer_capacity(0.100, ka, 4.76, include_water=False), 0.057565, places=6)
+        self.assertAlmostEqual(maximum_buffer_capacity(0.100), 0.057565, places=6)
+
+    def test_exact_monoprotic_acid_charge_balance_buffer(self):
+        ka = ka_from_pka(4.76)
+
+        exact_buffer_ph = monoprotic_acid_mixture_ph(0.100, 0.100, 1.0, ka)
+        exact_after_base = monoprotic_acid_mixture_ph(0.050, 0.050, 1.0, ka, strong_base_amount=0.010)
+
+        self.assertAlmostEqual(exact_buffer_ph, 4.7602, places=4)
+        self.assertAlmostEqual(exact_after_base, 4.9363, places=4)
 
     def test_proton_transfer_and_polyprotic_conjugate_base_constants(self):
         kb_values = conjugate_base_hydrolysis_constants((6.2e-5, 2.3e-6))
