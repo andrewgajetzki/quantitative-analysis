@@ -2,9 +2,13 @@ import math
 import unittest
 
 from equilibrium import (
+    acidic_site_fraction_deprotonated,
     activity_coefficient_from_ph,
     activity_product,
     activity_reaction_quotient,
+    amphiprotic_ph,
+    amphiprotic_ph_approximation,
+    basic_site_fraction_protonated,
     buffer_ph,
     buffer_capacity,
     buffer_ph_after_strong_acid,
@@ -44,6 +48,8 @@ from equilibrium import (
     interpolate_activity_coefficient,
     ion_product,
     ionic_strength,
+    isoelectric_point,
+    isoelectric_point_from_ionizable_groups,
     ka_from_pka,
     ksp_from_molar_solubility,
     ksp_from_molar_solubility_with_activity,
@@ -54,13 +60,22 @@ from equilibrium import (
     molar_solubility_from_ksp_with_activity,
     molar_solubility_with_common_ions,
     molar_solubility_with_common_ions_and_activity,
+    net_charge_from_ionizable_groups,
     neutral_ph,
     partial_pressures_from_moles,
     ph_from_hydrogen,
     ph_from_hydrogen_concentration_activity,
     ph_from_hydroxide_concentration_activity,
+    polyprotic_acid_charge_balance_ph,
     polyprotic_acid_distribution_fractions,
+    polyprotic_acid_distribution_fractions_from_ph,
+    polyprotic_acid_mixture_ph,
+    polyprotic_average_charge,
+    polyprotic_net_charge,
+    polyprotic_species_charges,
     polyprotic_species_concentrations,
+    polyprotic_species_concentrations_from_ph,
+    predominant_polyprotic_species,
     precipitation_threshold_concentration,
     pressure_change_shift,
     pressure_reaction_quotient,
@@ -309,6 +324,68 @@ class AcidBaseTests(unittest.TestCase):
             ("H2CO3", "HCO3-", "CO3^2-"),
         )
         self.assertAlmostEqual(species["CO3^2-"], 9.153565670882791e-8)
+
+    def test_polyprotic_salt_charge_balance_and_amphiprotic_ph(self):
+        constants = (1.0e-4, 1.0e-8)
+
+        h2a_ph = polyprotic_acid_mixture_ph((0.100, 0.0, 0.0), 1.0, constants)
+        naha_ph = polyprotic_acid_mixture_ph((0.0, 0.100, 0.0), 1.0, constants)
+        na2a_ph = polyprotic_acid_mixture_ph((0.0, 0.0, 0.100), 1.0, constants)
+        direct_ph = polyprotic_acid_charge_balance_ph(0.100, constants, strong_cation_concentration=0.100)
+
+        self.assertAlmostEqual(h2a_ph, 2.5069, places=4)
+        self.assertAlmostEqual(naha_ph, 6.0002, places=4)
+        self.assertAlmostEqual(na2a_ph, 10.4999, places=4)
+        self.assertAlmostEqual(direct_ph, naha_ph)
+        self.assertAlmostEqual(amphiprotic_ph(0.100, 1.0e-4, 1.0e-8), 6.0002, places=4)
+        self.assertAlmostEqual(amphiprotic_ph_approximation(4.0, 8.0), 6.0)
+
+    def test_polyprotic_alpha_fractions_principal_species_and_charges(self):
+        constants = (1.0e-4, 1.0e-8)
+
+        fractions = polyprotic_acid_distribution_fractions_from_ph(6.0, constants)
+        species = polyprotic_species_concentrations_from_ph(
+            0.100,
+            6.0,
+            constants,
+            ("H2A", "HA-", "A2-"),
+        )
+
+        self.assertAlmostEqual(fractions[0], 0.009803921568627449)
+        self.assertAlmostEqual(fractions[1], 0.9803921568627451)
+        self.assertAlmostEqual(fractions[2], 0.009803921568627449)
+        self.assertAlmostEqual(species["HA-"], 0.09803921568627451)
+        self.assertEqual(polyprotic_species_charges(constants), (0.0, -1.0, -2.0))
+        self.assertAlmostEqual(polyprotic_average_charge(6.0, constants), -1.0)
+        self.assertEqual(
+            predominant_polyprotic_species(6.0, constants, ("H2A", "HA-", "A2-")),
+            "HA-",
+        )
+
+    def test_isoelectric_point_and_protein_charge_helpers(self):
+        glycine_constants = (ka_from_pka(2.35), ka_from_pka(9.78))
+        lysine_constants = (ka_from_pka(2.18), ka_from_pka(8.95), ka_from_pka(10.53))
+
+        self.assertAlmostEqual(isoelectric_point(glycine_constants, (1, 0, -1)), 6.0650, places=4)
+        self.assertAlmostEqual(polyprotic_net_charge(6.065, glycine_constants, (1, 0, -1)), 0.0, places=12)
+        self.assertAlmostEqual(isoelectric_point(lysine_constants, (2, 1, 0, -1)), 9.7400, places=4)
+        self.assertAlmostEqual(acidic_site_fraction_deprotonated(4.0, 4.0), 0.5)
+        self.assertAlmostEqual(basic_site_fraction_protonated(10.0, 10.0), 0.5)
+        self.assertAlmostEqual(
+            net_charge_from_ionizable_groups(
+                7.0,
+                acidic_pkas=(4.0,),
+                basic_pkas=(10.0,),
+            ),
+            0.0,
+        )
+        self.assertAlmostEqual(
+            isoelectric_point_from_ionizable_groups(
+                acidic_pkas=(4.0,),
+                basic_pkas=(10.0,),
+            ),
+            7.0,
+        )
 
 
 class SolubilityTests(unittest.TestCase):

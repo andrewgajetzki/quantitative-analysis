@@ -1382,6 +1382,49 @@ def maximum_buffer_capacity(total_buffer_concentration: float) -> float:
     return math.log(10.0) * total_buffer_concentration / 4.0
 
 
+def amphiprotic_hydrogen_concentration(
+    formal_concentration: float,
+    preceding_ka: float,
+    following_ka: float,
+    kw: float = KW_25C,
+) -> float:
+    """Return [H+] for an amphiprotic species between two acid dissociations.
+
+    For HA- from H2A, pass K1 as ``preceding_ka`` and K2 as
+    ``following_ka``. For HPO4^2-, pass K2 and K3.
+    """
+    _require_positive(formal_concentration, "formal_concentration")
+    _require_positive(preceding_ka, "preceding_ka")
+    _require_positive(following_ka, "following_ka")
+    _require_positive(kw, "kw")
+    return math.sqrt(
+        (preceding_ka * following_ka * formal_concentration + preceding_ka * kw)
+        / (preceding_ka + formal_concentration)
+    )
+
+
+def amphiprotic_ph(
+    formal_concentration: float,
+    preceding_ka: float,
+    following_ka: float,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for an amphiprotic species using the full concentration formula."""
+    return ph_from_hydrogen(
+        amphiprotic_hydrogen_concentration(
+            formal_concentration,
+            preceding_ka,
+            following_ka,
+            kw,
+        )
+    )
+
+
+def amphiprotic_ph_approximation(preceding_pka: float, following_pka: float) -> float:
+    """Return the common amphiprotic approximation, pH = 1/2(pKa1 + pKa2)."""
+    return (preceding_pka + following_pka) / 2.0
+
+
 def polyprotic_acid_distribution_fractions(
     hydrogen_concentration: float,
     acid_dissociation_constants: list[float] | tuple[float, ...],
@@ -1403,6 +1446,100 @@ def polyprotic_acid_distribution_fractions(
     return tuple(term / denominator for term in terms)
 
 
+def polyprotic_acid_distribution_fractions_from_ph(
+    ph: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+) -> tuple[float, ...]:
+    """Return alpha fractions for a polyprotic acid at a pH."""
+    return polyprotic_acid_distribution_fractions(
+        hydrogen_from_ph(ph),
+        acid_dissociation_constants,
+    )
+
+
+def polyprotic_species_charges(
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    fully_protonated_charge: float = 0.0,
+) -> tuple[float, ...]:
+    """Return charges for HnA, H(n-1)A, ..., A species."""
+    _validate_acid_dissociation_constants(acid_dissociation_constants)
+    return tuple(
+        fully_protonated_charge - deprotonations
+        for deprotonations in range(len(acid_dissociation_constants) + 1)
+    )
+
+
+def polyprotic_average_charge_from_hydrogen(
+    hydrogen_concentration: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    fully_protonated_charge: float = 0.0,
+) -> float:
+    """Return concentration-weighted average charge for a polyprotic acid system."""
+    fractions = polyprotic_acid_distribution_fractions(
+        hydrogen_concentration,
+        acid_dissociation_constants,
+    )
+    charges = polyprotic_species_charges(
+        acid_dissociation_constants,
+        fully_protonated_charge,
+    )
+    return sum(fraction * charge for fraction, charge in zip(fractions, charges))
+
+
+def polyprotic_average_charge(
+    ph: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    fully_protonated_charge: float = 0.0,
+) -> float:
+    """Return concentration-weighted average charge at a pH."""
+    return polyprotic_average_charge_from_hydrogen(
+        hydrogen_from_ph(ph),
+        acid_dissociation_constants,
+        fully_protonated_charge,
+    )
+
+
+def polyprotic_net_charge(
+    ph: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    species_charges: list[float] | tuple[float, ...],
+) -> float:
+    """Return average charge for species with explicit charges at a pH."""
+    charges = tuple(species_charges)
+    if len(charges) != len(acid_dissociation_constants) + 1:
+        raise ValueError("species_charges length must be one more than acid_dissociation_constants.")
+    fractions = polyprotic_acid_distribution_fractions_from_ph(
+        ph,
+        acid_dissociation_constants,
+    )
+    return sum(fraction * charge for fraction, charge in zip(fractions, charges))
+
+
+def predominant_polyprotic_species_index(
+    ph: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+) -> int:
+    """Return the index of the largest alpha fraction at a pH."""
+    fractions = polyprotic_acid_distribution_fractions_from_ph(
+        ph,
+        acid_dissociation_constants,
+    )
+    return max(range(len(fractions)), key=fractions.__getitem__)
+
+
+def predominant_polyprotic_species(
+    ph: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    species_names: list[str] | tuple[str, ...],
+) -> str:
+    """Return the species name with the largest alpha fraction at a pH."""
+    if len(species_names) != len(acid_dissociation_constants) + 1:
+        raise ValueError("species_names length must be one more than acid_dissociation_constants.")
+    return species_names[
+        predominant_polyprotic_species_index(ph, acid_dissociation_constants)
+    ]
+
+
 def polyprotic_species_concentrations(
     total_concentration: float,
     hydrogen_concentration: float,
@@ -1419,6 +1556,253 @@ def polyprotic_species_concentrations(
     if len(names) != len(fractions):
         raise ValueError("species_names length must match the number of acid species.")
     return {name: total_concentration * fraction for name, fraction in zip(names, fractions)}
+
+
+def polyprotic_species_concentrations_from_ph(
+    total_concentration: float,
+    ph: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    species_names: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, float]:
+    """Return polyprotic species concentrations from total concentration and pH."""
+    return polyprotic_species_concentrations(
+        total_concentration,
+        hydrogen_from_ph(ph),
+        acid_dissociation_constants,
+        species_names,
+    )
+
+
+def polyprotic_acid_charge_balance_ph(
+    total_acid_concentration: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    strong_cation_concentration: float = 0.0,
+    strong_anion_concentration: float = 0.0,
+    fully_protonated_charge: float = 0.0,
+    kw: float = KW_25C,
+    *,
+    tolerance: float = 1e-12,
+    max_iterations: int = 200,
+) -> float:
+    """Return exact pH for a polyprotic acid system from charge balance."""
+    _require_nonnegative(total_acid_concentration, "total_acid_concentration")
+    _validate_acid_dissociation_constants(acid_dissociation_constants)
+    _require_nonnegative(strong_cation_concentration, "strong_cation_concentration")
+    _require_nonnegative(strong_anion_concentration, "strong_anion_concentration")
+    _require_positive(kw, "kw")
+
+    def residual(hydrogen: float) -> float:
+        average_charge = polyprotic_average_charge_from_hydrogen(
+            hydrogen,
+            acid_dissociation_constants,
+            fully_protonated_charge,
+        )
+        return (
+            hydrogen
+            - kw / hydrogen
+            + strong_cation_concentration
+            - strong_anion_concentration
+            + total_acid_concentration * average_charge
+        )
+
+    low = 1.0e-16
+    high = max(
+        1.0,
+        total_acid_concentration
+        + strong_cation_concentration
+        + strong_anion_concentration
+        + abs(fully_protonated_charge) * total_acid_concentration
+        + 1.0,
+    )
+    while residual(low) > 0:
+        low /= 10.0
+    while residual(high) < 0:
+        high *= 10.0
+
+    for _ in range(max_iterations):
+        mid = (low + high) / 2.0
+        value = residual(mid)
+        if abs(value) <= tolerance or math.isclose(low, high, rel_tol=tolerance, abs_tol=tolerance):
+            return ph_from_hydrogen(mid)
+        if value < 0:
+            low = mid
+        else:
+            high = mid
+    return ph_from_hydrogen((low + high) / 2.0)
+
+
+def polyprotic_acid_mixture_ph(
+    acid_species_amounts: list[float] | tuple[float, ...],
+    final_volume_l: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    fully_protonated_charge: float = 0.0,
+    strong_cation_amount: float = 0.0,
+    strong_anion_amount: float = 0.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return exact pH from amounts of HnA, H(n-1)A, ..., A salts.
+
+    The amounts are formula-unit amounts. Counterions needed to make each
+    starting species electrically neutral are included automatically.
+    """
+    amounts = tuple(float(amount) for amount in acid_species_amounts)
+    if len(amounts) != len(acid_dissociation_constants) + 1:
+        raise ValueError("acid_species_amounts length must be one more than acid_dissociation_constants.")
+    for amount in amounts:
+        _require_nonnegative(amount, "acid species amount")
+    _require_positive(final_volume_l, "final_volume_l")
+    _require_nonnegative(strong_cation_amount, "strong_cation_amount")
+    _require_nonnegative(strong_anion_amount, "strong_anion_amount")
+
+    charges = polyprotic_species_charges(
+        acid_dissociation_constants,
+        fully_protonated_charge,
+    )
+    total_acid_amount = sum(amounts)
+    counter_cation_amount = strong_cation_amount
+    counter_anion_amount = strong_anion_amount
+    for amount, charge in zip(amounts, charges):
+        if charge < 0:
+            counter_cation_amount += -charge * amount
+        elif charge > 0:
+            counter_anion_amount += charge * amount
+
+    return polyprotic_acid_charge_balance_ph(
+        total_acid_amount / final_volume_l,
+        acid_dissociation_constants,
+        counter_cation_amount / final_volume_l,
+        counter_anion_amount / final_volume_l,
+        fully_protonated_charge,
+        kw,
+    )
+
+
+def isoelectric_point(
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    species_charges: list[float] | tuple[float, ...],
+    *,
+    ph_low: float = 0.0,
+    ph_high: float = 14.0,
+    tolerance: float = 1e-10,
+    max_iterations: int = 200,
+) -> float:
+    """Return pH where the weighted average molecular charge is zero."""
+    _validate_acid_dissociation_constants(acid_dissociation_constants)
+    charges = tuple(species_charges)
+    if len(charges) != len(acid_dissociation_constants) + 1:
+        raise ValueError("species_charges length must be one more than acid_dissociation_constants.")
+    if ph_low >= ph_high:
+        raise ValueError("ph_low must be less than ph_high.")
+
+    low_value = polyprotic_net_charge(ph_low, acid_dissociation_constants, charges)
+    high_value = polyprotic_net_charge(ph_high, acid_dissociation_constants, charges)
+    if math.isclose(low_value, 0.0, rel_tol=tolerance, abs_tol=tolerance):
+        return ph_low
+    if math.isclose(high_value, 0.0, rel_tol=tolerance, abs_tol=tolerance):
+        return ph_high
+    if low_value * high_value > 0:
+        raise ValueError("Net charge does not cross zero within the pH bounds.")
+
+    low = ph_low
+    high = ph_high
+    for _ in range(max_iterations):
+        mid = (low + high) / 2.0
+        value = polyprotic_net_charge(mid, acid_dissociation_constants, charges)
+        if abs(value) <= tolerance or math.isclose(low, high, rel_tol=tolerance, abs_tol=tolerance):
+            return mid
+        if low_value * value > 0:
+            low = mid
+            low_value = value
+        else:
+            high = mid
+    return (low + high) / 2.0
+
+
+def acidic_site_fraction_deprotonated(ph: float, pka: float) -> float:
+    """Return the deprotonated fraction of an acidic side chain HA/A-."""
+    return 1.0 / (1.0 + 10.0 ** (pka - ph))
+
+
+def basic_site_fraction_protonated(ph: float, pka: float) -> float:
+    """Return the protonated fraction of a basic side chain BH+/B."""
+    return 1.0 / (1.0 + 10.0 ** (ph - pka))
+
+
+def net_charge_from_ionizable_groups(
+    ph: float,
+    acidic_pkas: list[float] | tuple[float, ...] = (),
+    basic_pkas: list[float] | tuple[float, ...] = (),
+    acidic_counts: list[float] | tuple[float, ...] | None = None,
+    basic_counts: list[float] | tuple[float, ...] | None = None,
+) -> float:
+    """Return net charge from independent acidic and basic ionizable groups."""
+    acidic_sites = _site_counts(acidic_pkas, acidic_counts, "acidic")
+    basic_sites = _site_counts(basic_pkas, basic_counts, "basic")
+    negative_charge = sum(
+        count * acidic_site_fraction_deprotonated(ph, pka)
+        for pka, count in acidic_sites
+    )
+    positive_charge = sum(
+        count * basic_site_fraction_protonated(ph, pka)
+        for pka, count in basic_sites
+    )
+    return positive_charge - negative_charge
+
+
+def isoelectric_point_from_ionizable_groups(
+    acidic_pkas: list[float] | tuple[float, ...] = (),
+    basic_pkas: list[float] | tuple[float, ...] = (),
+    acidic_counts: list[float] | tuple[float, ...] | None = None,
+    basic_counts: list[float] | tuple[float, ...] | None = None,
+    *,
+    ph_low: float = 0.0,
+    ph_high: float = 14.0,
+    tolerance: float = 1e-10,
+    max_iterations: int = 200,
+) -> float:
+    """Return pI for independent acidic and basic groups by net-charge root finding."""
+    if ph_low >= ph_high:
+        raise ValueError("ph_low must be less than ph_high.")
+    low_value = net_charge_from_ionizable_groups(
+        ph_low,
+        acidic_pkas,
+        basic_pkas,
+        acidic_counts,
+        basic_counts,
+    )
+    high_value = net_charge_from_ionizable_groups(
+        ph_high,
+        acidic_pkas,
+        basic_pkas,
+        acidic_counts,
+        basic_counts,
+    )
+    if math.isclose(low_value, 0.0, rel_tol=tolerance, abs_tol=tolerance):
+        return ph_low
+    if math.isclose(high_value, 0.0, rel_tol=tolerance, abs_tol=tolerance):
+        return ph_high
+    if low_value * high_value > 0:
+        raise ValueError("Net charge does not cross zero within the pH bounds.")
+
+    low = ph_low
+    high = ph_high
+    for _ in range(max_iterations):
+        mid = (low + high) / 2.0
+        value = net_charge_from_ionizable_groups(
+            mid,
+            acidic_pkas,
+            basic_pkas,
+            acidic_counts,
+            basic_counts,
+        )
+        if abs(value) <= tolerance or math.isclose(low, high, rel_tol=tolerance, abs_tol=tolerance):
+            return mid
+        if low_value * value > 0:
+            low = mid
+            low_value = value
+        else:
+            high = mid
+    return (low + high) / 2.0
 
 
 def ion_product(
@@ -2037,3 +2421,25 @@ def _require_nonnegative(value: float, name: str) -> None:
 def _require_fraction_between_zero_and_one(value: float, name: str) -> None:
     if value <= 0 or value >= 1:
         raise ValueError(f"{name} must be greater than 0 and less than 1.")
+
+
+def _validate_acid_dissociation_constants(constants: list[float] | tuple[float, ...]) -> None:
+    for constant in constants:
+        _require_positive(constant, "acid_dissociation_constant")
+
+
+def _site_counts(
+    pkas: list[float] | tuple[float, ...],
+    counts: list[float] | tuple[float, ...] | None,
+    label: str,
+) -> tuple[tuple[float, float], ...]:
+    pka_values = tuple(float(pka) for pka in pkas)
+    if counts is None:
+        count_values = (1.0,) * len(pka_values)
+    else:
+        count_values = tuple(float(count) for count in counts)
+    if len(pka_values) != len(count_values):
+        raise ValueError(f"{label}_counts length must match {label}_pkas length.")
+    for count in count_values:
+        _require_nonnegative(count, f"{label} group count")
+    return tuple(zip(pka_values, count_values))
