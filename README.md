@@ -27,6 +27,7 @@ The current toolkit focuses on chemical measurement calculations:
 - pH, pOH, weak acid/base, conjugate Ka/Kb, buffer, and strong acid/base calculations
 - Ksp solubility, common-ion, precipitation, complex-ion, thermodynamic K, and Henry's law helpers
 - salt hydrolysis, polyprotic acid distributions, Kp/Kc, gas pressure quotients, and Le Chatelier shifts
+- ionic strength, Debye-Huckel activity coefficients, activity-corrected pH/Ksp, and balance checks
 
 ## Project Layout
 
@@ -67,9 +68,13 @@ PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 from formula import Formula
 from equilibrium import (
     classify_ph,
+    debye_huckel_activity_coefficients,
     equilibrium_direction,
+    ionic_strength,
     neutral_ph,
     molar_solubility_from_ksp,
+    molar_solubility_from_ksp_with_activity,
+    ph_from_hydrogen_concentration_activity,
     reaction_quotient,
     salt_solution_character,
     weak_acid_ph,
@@ -151,7 +156,14 @@ print(equilibrium_direction(q, equilibrium_constant=50.0))
 print(weak_acid_ph(0.100, 1.8e-5))
 print(neutral_ph(5.5e-13), classify_ph(7.00, 5.5e-13))
 print(salt_solution_character(cation_ka=5.6e-10).character)
+mgcl2_concentrations = {"Mg2+": 0.025, "Cl-": 0.050}
+mgcl2_charges = {"Mg2+": 2, "Cl-": -1}
+mgcl2_sizes = {"Mg2+": 800, "Cl-": 300}
+print(ionic_strength(mgcl2_concentrations, mgcl2_charges))
+print(debye_huckel_activity_coefficients(mgcl2_concentrations, mgcl2_charges, mgcl2_sizes))
+print(ph_from_hydrogen_concentration_activity(0.0100, 0.83))
 print(molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1}))
+print(molar_solubility_from_ksp_with_activity(1.8e-10, {"Ag+": 1, "Cl-": 1}, {"Ag+": 0.75, "Cl-": 0.76}))
 print(will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1}))
 ```
 

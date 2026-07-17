@@ -9,14 +9,18 @@ from equilibrium import (
     classify_ph,
     complex_concentration_from_free,
     delta_gas_moles,
+    debye_huckel_activity_coefficients,
     delta_g_standard_from_equilibrium_constant,
     equilibrium_constant_from_delta_g_standard,
     equilibrium_direction,
     free_metal_from_total_metal,
     henry_law_concentration,
+    ionic_strength,
     kp_from_kc,
     molar_solubility_from_ksp,
+    molar_solubility_from_ksp_with_activity,
     neutral_ph,
+    ph_from_hydrogen_concentration_activity,
     pressure_change_shift,
     reaction_quotient,
     salt_solution_character,
@@ -99,9 +103,28 @@ def demonstrate_equilibrium() -> None:
     print(f"  pH 7.00 at that Kw is {classify_ph(7.00, 5.5e-13)}")
     print(f"  NH4Cl salt character: {salt_solution_character(cation_ka=5.6e-10).character}")
 
+    mgcl2_concentrations = {"Mg2+": 0.025, "Cl-": 0.050}
+    mgcl2_charges = {"Mg2+": 2, "Cl-": -1}
+    mgcl2_sizes = {"Mg2+": 800, "Cl-": 300}
+    mgcl2_strength = ionic_strength(mgcl2_concentrations, mgcl2_charges)
+    mgcl2_gammas = debye_huckel_activity_coefficients(
+        mgcl2_concentrations,
+        mgcl2_charges,
+        mgcl2_sizes,
+    )
+    print(f"  MgCl2 ionic strength: {mgcl2_strength:.3f} M")
+    print(f"  gamma(Mg2+): {mgcl2_gammas['Mg2+']:.3f}, gamma(Cl-): {mgcl2_gammas['Cl-']:.3f}")
+    print(f"  pH from 0.0100 M H+ with gamma=0.83: {ph_from_hydrogen_concentration_activity(0.0100, 0.83):.3f}")
+
     agcl_solubility = molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1})
+    agcl_activity_solubility = molar_solubility_from_ksp_with_activity(
+        1.8e-10,
+        {"Ag+": 1, "Cl-": 1},
+        {"Ag+": 0.75, "Cl-": 0.76},
+    )
     agcl_precipitate = will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1})
     print(f"  AgCl molar solubility: {agcl_solubility:.2e} M")
+    print(f"  AgCl activity-corrected solubility: {agcl_activity_solubility:.2e} M")
     print(f"  AgCl precipitates from 1.0e-4 M ions: {agcl_precipitate.precipitates}")
 
     complex_concentration = complex_concentration_from_free(1.0e-9, 0.10, 1.0e9, ligand_coefficient=2)

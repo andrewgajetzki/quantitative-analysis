@@ -39,6 +39,26 @@ class SaltHydrolysisResult:
     anion_kb: float | None = None
 
 
+@dataclass(frozen=True)
+class ChargeBalanceResult:
+    """Charge-balance accounting in equivalents per liter."""
+
+    positive_charge: float
+    negative_charge: float
+    residual: float
+    balanced: bool
+
+
+@dataclass(frozen=True)
+class MassBalanceResult:
+    """Mass-balance accounting for an analytical concentration."""
+
+    total_concentration: float
+    accounted_concentration: float
+    residual: float
+    balanced: bool
+
+
 def reaction_quotient(
     concentrations: Mapping[str, float],
     stoichiometry: Mapping[str, float],
@@ -60,6 +80,75 @@ def reaction_quotient(
             return 0.0 if coefficient > 0 else math.inf
         quotient *= concentration**coefficient
     return quotient
+
+
+def activity(concentration: float, activity_coefficient: float) -> float:
+    """Return activity from concentration and activity coefficient."""
+    _require_nonnegative(concentration, "concentration")
+    _require_positive(activity_coefficient, "activity_coefficient")
+    return concentration * activity_coefficient
+
+
+def activities(
+    concentrations: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+) -> dict[str, float]:
+    """Return activities for a set of concentrations."""
+    return {
+        species: activity(concentration, activity_coefficients.get(species, 1.0))
+        for species, concentration in concentrations.items()
+    }
+
+
+def activity_reaction_quotient(
+    concentrations: Mapping[str, float],
+    stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float] | None = None,
+) -> float:
+    """Return Q using activities instead of bare concentrations."""
+    coefficients = activity_coefficients or {}
+    return reaction_quotient(activities(concentrations, coefficients), stoichiometry)
+
+
+def activity_coefficient_product(
+    stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+) -> float:
+    """Return the gamma term that converts concentration quotient to activity quotient."""
+    product = 1.0
+    for species, coefficient in stoichiometry.items():
+        if coefficient == 0:
+            continue
+        gamma = activity_coefficients.get(species, 1.0)
+        _require_positive(gamma, f"activity coefficient for {species}")
+        product *= gamma**coefficient
+    return product
+
+
+def concentration_equilibrium_constant(
+    thermodynamic_equilibrium_constant: float,
+    stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+) -> float:
+    """Return concentration-based K from thermodynamic K and activity coefficients."""
+    _require_positive(thermodynamic_equilibrium_constant, "thermodynamic_equilibrium_constant")
+    return thermodynamic_equilibrium_constant / activity_coefficient_product(
+        stoichiometry,
+        activity_coefficients,
+    )
+
+
+def thermodynamic_equilibrium_constant(
+    concentration_equilibrium_constant_value: float,
+    stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+) -> float:
+    """Return thermodynamic K from concentration-based K and activity coefficients."""
+    _require_positive(concentration_equilibrium_constant_value, "concentration_equilibrium_constant_value")
+    return concentration_equilibrium_constant_value * activity_coefficient_product(
+        stoichiometry,
+        activity_coefficients,
+    )
 
 
 def equilibrium_direction(
@@ -185,6 +274,133 @@ def temperature_change_shift(delta_h_j_per_mol: float, temperature_increases: bo
     return "forward" if delta_h_j_per_mol < 0 else "reverse"
 
 
+def ionic_strength(
+    concentrations: Mapping[str, float],
+    charges: Mapping[str, float],
+) -> float:
+    """Return ionic strength, I = 1/2 sum(c_i z_i^2)."""
+    strength = 0.0
+    for species, concentration in concentrations.items():
+        if species not in charges:
+            raise ValueError(f"Missing charge for {species}.")
+        _require_nonnegative(concentration, f"concentration for {species}")
+        strength += concentration * charges[species] ** 2
+    return 0.5 * strength
+
+
+def debye_huckel_a_parameter(
+    temperature_k: float = 298.15,
+    dielectric_constant: float = 78.54,
+) -> float:
+    """Return the Debye-Huckel A parameter for water-like solvents."""
+    _require_positive(temperature_k, "temperature_k")
+    _require_positive(dielectric_constant, "dielectric_constant")
+    return 1.825e6 / (dielectric_constant * temperature_k) ** 1.5
+
+
+def debye_huckel_b_parameter_pm(
+    temperature_k: float = 298.15,
+    dielectric_constant: float = 78.54,
+) -> float:
+    """Return the Debye-Huckel B parameter for ion sizes in picometers."""
+    _require_positive(temperature_k, "temperature_k")
+    _require_positive(dielectric_constant, "dielectric_constant")
+    return 0.5029 / math.sqrt(dielectric_constant * temperature_k)
+
+
+def debye_huckel_log10_activity_coefficient(
+    charge: float,
+    ionic_strength_value: float,
+    ion_size_pm: float | None = None,
+    *,
+    temperature_k: float = 298.15,
+    dielectric_constant: float = 78.54,
+) -> float:
+    """Return log10(gamma) from the extended Debye-Huckel equation."""
+    _require_nonnegative(ionic_strength_value, "ionic_strength_value")
+    if math.isclose(charge, 0.0) or math.isclose(ionic_strength_value, 0.0):
+        return 0.0
+    sqrt_strength = math.sqrt(ionic_strength_value)
+    denominator = 1.0
+    if ion_size_pm is not None:
+        _require_nonnegative(ion_size_pm, "ion_size_pm")
+        denominator += (
+            debye_huckel_b_parameter_pm(temperature_k, dielectric_constant)
+            * ion_size_pm
+            * sqrt_strength
+        )
+    return -(
+        debye_huckel_a_parameter(temperature_k, dielectric_constant)
+        * charge**2
+        * sqrt_strength
+        / denominator
+    )
+
+
+def debye_huckel_activity_coefficient(
+    charge: float,
+    ionic_strength_value: float,
+    ion_size_pm: float | None = None,
+    *,
+    temperature_k: float = 298.15,
+    dielectric_constant: float = 78.54,
+) -> float:
+    """Return gamma from the extended Debye-Huckel equation."""
+    return 10.0 ** debye_huckel_log10_activity_coefficient(
+        charge,
+        ionic_strength_value,
+        ion_size_pm,
+        temperature_k=temperature_k,
+        dielectric_constant=dielectric_constant,
+    )
+
+
+def debye_huckel_activity_coefficients(
+    concentrations: Mapping[str, float],
+    charges: Mapping[str, float],
+    ion_sizes_pm: Mapping[str, float] | None = None,
+    *,
+    temperature_k: float = 298.15,
+    dielectric_constant: float = 78.54,
+) -> dict[str, float]:
+    """Return activity coefficients for all species from solution ionic strength."""
+    strength = ionic_strength(concentrations, charges)
+    sizes = ion_sizes_pm or {}
+    return {
+        species: debye_huckel_activity_coefficient(
+            charge,
+            strength,
+            sizes.get(species),
+            temperature_k=temperature_k,
+            dielectric_constant=dielectric_constant,
+        )
+        for species, charge in charges.items()
+    }
+
+
+def interpolate_activity_coefficient(
+    ionic_strength_value: float,
+    table_values: Mapping[float, float],
+) -> float:
+    """Linearly interpolate gamma from tabulated ionic-strength values."""
+    _require_nonnegative(ionic_strength_value, "ionic_strength_value")
+    if not table_values:
+        raise ValueError("table_values must not be empty.")
+    points = sorted(table_values.items())
+    for strength, coefficient in points:
+        _require_nonnegative(strength, "tabulated ionic strength")
+        _require_positive(coefficient, "tabulated activity coefficient")
+    if ionic_strength_value <= points[0][0]:
+        return points[0][1]
+    if ionic_strength_value >= points[-1][0]:
+        return points[-1][1]
+    for (left_strength, left_gamma), (right_strength, right_gamma) in zip(points, points[1:]):
+        if left_strength <= ionic_strength_value <= right_strength:
+            fraction = (ionic_strength_value - left_strength) / (right_strength - left_strength)
+            return left_gamma + fraction * (right_gamma - left_gamma)
+    raise RuntimeError("Interpolation failed.")
+
+
 def solve_equilibrium(
     initial_concentrations: Mapping[str, float],
     stoichiometry: Mapping[str, float],
@@ -260,9 +476,60 @@ def hydrogen_from_ph(ph: float) -> float:
     return 10.0**(-ph)
 
 
+def hydrogen_activity_from_ph(ph: float) -> float:
+    """Return hydrogen-ion activity from pH."""
+    return hydrogen_from_ph(ph)
+
+
+def ph_from_hydrogen_activity(hydrogen_activity: float) -> float:
+    """Return pH from hydrogen-ion activity."""
+    _require_positive(hydrogen_activity, "hydrogen_activity")
+    return -math.log10(hydrogen_activity)
+
+
+def ph_from_hydrogen_concentration_activity(
+    hydrogen_concentration: float,
+    hydrogen_activity_coefficient: float,
+) -> float:
+    """Return pH from [H+] and gamma_H."""
+    return ph_from_hydrogen_activity(
+        activity(hydrogen_concentration, hydrogen_activity_coefficient)
+    )
+
+
 def hydroxide_from_poh(poh: float) -> float:
     """Return hydroxide-ion concentration from pOH."""
     return 10.0**(-poh)
+
+
+def hydroxide_activity_from_poh(poh: float) -> float:
+    """Return hydroxide-ion activity from pOH."""
+    return hydroxide_from_poh(poh)
+
+
+def poh_from_hydroxide_activity(hydroxide_activity: float) -> float:
+    """Return pOH from hydroxide-ion activity."""
+    _require_positive(hydroxide_activity, "hydroxide_activity")
+    return -math.log10(hydroxide_activity)
+
+
+def ph_from_hydroxide_activity(hydroxide_activity: float, kw: float = KW_25C) -> float:
+    """Return pH from hydroxide activity and Kw."""
+    _require_positive(hydroxide_activity, "hydroxide_activity")
+    _require_positive(kw, "kw")
+    return pkw(kw) + math.log10(hydroxide_activity)
+
+
+def ph_from_hydroxide_concentration_activity(
+    hydroxide_concentration: float,
+    hydroxide_activity_coefficient: float,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH from [OH-], gamma_OH, and Kw."""
+    return ph_from_hydroxide_activity(
+        activity(hydroxide_concentration, hydroxide_activity_coefficient),
+        kw,
+    )
 
 
 def ph_from_hydrogen(hydrogen_concentration: float) -> float:
@@ -454,6 +721,47 @@ def weak_acid_ph(formal_concentration: float, ka: float) -> float:
     return ph_from_hydrogen(weak_acid_hydrogen_concentration(formal_concentration, ka))
 
 
+def weak_acid_hydrogen_concentration_with_activity(
+    formal_concentration: float,
+    ka: float,
+    hydrogen_activity_coefficient: float,
+    conjugate_base_activity_coefficient: float,
+    acid_activity_coefficient: float = 1.0,
+) -> float:
+    """Return [H+] for HA using activity-corrected Ka."""
+    concentration_ka = concentration_equilibrium_constant(
+        ka,
+        {"H+": 1, "A-": 1, "HA": -1},
+        {
+            "H+": hydrogen_activity_coefficient,
+            "A-": conjugate_base_activity_coefficient,
+            "HA": acid_activity_coefficient,
+        },
+    )
+    return weak_acid_hydrogen_concentration(formal_concentration, concentration_ka)
+
+
+def weak_acid_ph_with_activity(
+    formal_concentration: float,
+    ka: float,
+    hydrogen_activity_coefficient: float,
+    conjugate_base_activity_coefficient: float,
+    acid_activity_coefficient: float = 1.0,
+) -> float:
+    """Return pH for a weak acid using activity-corrected Ka."""
+    hydrogen_concentration = weak_acid_hydrogen_concentration_with_activity(
+        formal_concentration,
+        ka,
+        hydrogen_activity_coefficient,
+        conjugate_base_activity_coefficient,
+        acid_activity_coefficient,
+    )
+    return ph_from_hydrogen_concentration_activity(
+        hydrogen_concentration,
+        hydrogen_activity_coefficient,
+    )
+
+
 def weak_base_hydroxide_concentration(formal_concentration: float, kb: float) -> float:
     """Return [OH-] for B + H2O <=> BH+ + OH- using the exact quadratic solution."""
     _require_positive(formal_concentration, "formal_concentration")
@@ -465,6 +773,49 @@ def weak_base_ph(formal_concentration: float, kb: float, kw: float = KW_25C) -> 
     """Return pH for a weak base."""
     hydroxide = weak_base_hydroxide_concentration(formal_concentration, kb)
     return ph_from_poh(poh_from_hydroxide(hydroxide), kw)
+
+
+def weak_base_hydroxide_concentration_with_activity(
+    formal_concentration: float,
+    kb: float,
+    conjugate_acid_activity_coefficient: float,
+    hydroxide_activity_coefficient: float,
+    base_activity_coefficient: float = 1.0,
+) -> float:
+    """Return [OH-] for B using activity-corrected Kb."""
+    concentration_kb = concentration_equilibrium_constant(
+        kb,
+        {"BH+": 1, "OH-": 1, "B": -1},
+        {
+            "BH+": conjugate_acid_activity_coefficient,
+            "OH-": hydroxide_activity_coefficient,
+            "B": base_activity_coefficient,
+        },
+    )
+    return weak_base_hydroxide_concentration(formal_concentration, concentration_kb)
+
+
+def weak_base_ph_with_activity(
+    formal_concentration: float,
+    kb: float,
+    conjugate_acid_activity_coefficient: float,
+    hydroxide_activity_coefficient: float,
+    base_activity_coefficient: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for a weak base using activity-corrected Kb."""
+    hydroxide_concentration = weak_base_hydroxide_concentration_with_activity(
+        formal_concentration,
+        kb,
+        conjugate_acid_activity_coefficient,
+        hydroxide_activity_coefficient,
+        base_activity_coefficient,
+    )
+    return ph_from_hydroxide_concentration_activity(
+        hydroxide_concentration,
+        hydroxide_activity_coefficient,
+        kw,
+    )
 
 
 def percent_ionization_weak_acid(formal_concentration: float, ka: float) -> float:
@@ -544,6 +895,19 @@ def ion_product(
     return product
 
 
+def activity_product(
+    concentrations: Mapping[str, float],
+    ion_stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float] | None = None,
+) -> float:
+    """Return an ion product using ion activities."""
+    return activity_reaction_quotient(
+        concentrations,
+        _positive_coefficients(ion_stoichiometry),
+        activity_coefficients,
+    )
+
+
 def ksp_from_molar_solubility(
     molar_solubility: float,
     ion_stoichiometry: Mapping[str, float],
@@ -556,6 +920,20 @@ def ksp_from_molar_solubility(
     return product
 
 
+def ksp_from_molar_solubility_with_activity(
+    molar_solubility: float,
+    ion_stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+) -> float:
+    """Return thermodynamic Ksp from solubility and activity coefficients."""
+    concentration_ksp = ksp_from_molar_solubility(molar_solubility, ion_stoichiometry)
+    return thermodynamic_equilibrium_constant(
+        concentration_ksp,
+        _positive_coefficients(ion_stoichiometry),
+        activity_coefficients,
+    )
+
+
 def molar_solubility_from_ksp(ksp: float, ion_stoichiometry: Mapping[str, float]) -> float:
     """Return pure-water molar solubility from Ksp."""
     _require_positive(ksp, "ksp")
@@ -566,6 +944,20 @@ def molar_solubility_from_ksp(ksp: float, ion_stoichiometry: Mapping[str, float]
         coefficient_product *= coefficient**coefficient
         coefficient_sum += coefficient
     return (ksp / coefficient_product) ** (1.0 / coefficient_sum)
+
+
+def molar_solubility_from_ksp_with_activity(
+    ksp: float,
+    ion_stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+) -> float:
+    """Return molar solubility from thermodynamic Ksp and fixed activity coefficients."""
+    concentration_ksp = concentration_equilibrium_constant(
+        ksp,
+        _positive_coefficients(ion_stoichiometry),
+        activity_coefficients,
+    )
+    return molar_solubility_from_ksp(concentration_ksp, ion_stoichiometry)
 
 
 def molar_solubility_with_common_ions(
@@ -616,6 +1008,57 @@ def molar_solubility_with_common_ions(
     return (low + high) / 2.0
 
 
+def molar_solubility_with_common_ions_and_activity(
+    ksp: float,
+    ion_stoichiometry: Mapping[str, float],
+    initial_ion_concentrations: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+    *,
+    tolerance: float = 1e-12,
+    max_iterations: int = 200,
+) -> float:
+    """Return molar solubility with common ions and fixed activity coefficients."""
+    _require_positive(ksp, "ksp")
+    coefficients = _positive_coefficients(ion_stoichiometry)
+    for ion, concentration in initial_ion_concentrations.items():
+        if ion in coefficients:
+            _require_nonnegative(concentration, f"concentration for {ion}")
+
+    initial_product = activity_product(
+        {ion: initial_ion_concentrations.get(ion, 0.0) for ion in coefficients},
+        coefficients,
+        activity_coefficients,
+    )
+    if initial_product >= ksp:
+        return 0.0
+
+    def qsp_at(solubility: float) -> float:
+        return activity_product(
+            {
+                ion: initial_ion_concentrations.get(ion, 0.0) + coefficient * solubility
+                for ion, coefficient in coefficients.items()
+            },
+            coefficients,
+            activity_coefficients,
+        )
+
+    low = 0.0
+    high = molar_solubility_from_ksp_with_activity(ksp, coefficients, activity_coefficients)
+    while qsp_at(high) < ksp:
+        high *= 2.0
+
+    for _ in range(max_iterations):
+        mid = (low + high) / 2.0
+        residual = qsp_at(mid) - ksp
+        if abs(residual) <= max(abs(ksp) * tolerance, 1e-300):
+            return mid
+        if residual < 0:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2.0
+
+
 def will_precipitate(
     concentrations: Mapping[str, float],
     ksp: float,
@@ -625,6 +1068,19 @@ def will_precipitate(
     """Return whether Qsp exceeds Ksp."""
     _require_positive(ksp, "ksp")
     qsp = ion_product(concentrations, ion_stoichiometry)
+    return PrecipitationResult(qsp, ksp, qsp > ksp and not math.isclose(qsp, ksp, rel_tol=tolerance))
+
+
+def will_precipitate_with_activity(
+    concentrations: Mapping[str, float],
+    ksp: float,
+    ion_stoichiometry: Mapping[str, float],
+    activity_coefficients: Mapping[str, float],
+    tolerance: float = 1e-12,
+) -> PrecipitationResult:
+    """Return whether the activity product exceeds Ksp."""
+    _require_positive(ksp, "ksp")
+    qsp = activity_product(concentrations, ion_stoichiometry, activity_coefficients)
     return PrecipitationResult(qsp, ksp, qsp > ksp and not math.isclose(qsp, ksp, rel_tol=tolerance))
 
 
@@ -852,6 +1308,77 @@ def henry_law_pressure(concentration: float, henry_constant: float) -> float:
     _require_nonnegative(concentration, "concentration")
     _require_positive(henry_constant, "henry_constant")
     return concentration / henry_constant
+
+
+def charge_balance(
+    concentrations: Mapping[str, float],
+    charges: Mapping[str, float],
+    tolerance: float = 1e-12,
+) -> ChargeBalanceResult:
+    """Return positive and negative charge totals for a charge-balance check."""
+    positive_charge = 0.0
+    negative_charge = 0.0
+    for species, concentration in concentrations.items():
+        if species not in charges:
+            raise ValueError(f"Missing charge for {species}.")
+        _require_nonnegative(concentration, f"concentration for {species}")
+        charge = charges[species]
+        if charge > 0:
+            positive_charge += charge * concentration
+        elif charge < 0:
+            negative_charge += -charge * concentration
+    residual = positive_charge - negative_charge
+    return ChargeBalanceResult(
+        positive_charge,
+        negative_charge,
+        residual,
+        math.isclose(residual, 0.0, rel_tol=tolerance, abs_tol=tolerance),
+    )
+
+
+def charge_balance_residual(
+    concentrations: Mapping[str, float],
+    charges: Mapping[str, float],
+) -> float:
+    """Return sum(z_i c_i), which is zero when charge is balanced."""
+    return charge_balance(concentrations, charges).residual
+
+
+def mass_balance(
+    total_concentration: float,
+    species_concentrations: Mapping[str, float],
+    species_coefficients: Mapping[str, float] | None = None,
+    tolerance: float = 1e-12,
+) -> MassBalanceResult:
+    """Return analytical mass-balance accounting for related species."""
+    _require_nonnegative(total_concentration, "total_concentration")
+    coefficients = species_coefficients or {}
+    accounted = 0.0
+    for species, concentration in species_concentrations.items():
+        _require_nonnegative(concentration, f"concentration for {species}")
+        coefficient = coefficients.get(species, 1.0)
+        _require_nonnegative(coefficient, f"coefficient for {species}")
+        accounted += coefficient * concentration
+    residual = total_concentration - accounted
+    return MassBalanceResult(
+        total_concentration,
+        accounted,
+        residual,
+        math.isclose(residual, 0.0, rel_tol=tolerance, abs_tol=tolerance),
+    )
+
+
+def mass_balance_residual(
+    total_concentration: float,
+    species_concentrations: Mapping[str, float],
+    species_coefficients: Mapping[str, float] | None = None,
+) -> float:
+    """Return total minus accounted concentration for a mass balance."""
+    return mass_balance(
+        total_concentration,
+        species_concentrations,
+        species_coefficients,
+    ).residual
 
 
 def _normalized_initial_concentrations(

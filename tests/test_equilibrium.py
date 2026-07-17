@@ -2,7 +2,10 @@ import math
 import unittest
 
 from equilibrium import (
+    activity_product,
+    activity_reaction_quotient,
     buffer_ph,
+    charge_balance,
     classify_ph,
     combine_equilibrium_constants,
     complex_concentration_from_free,
@@ -18,20 +21,34 @@ from equilibrium import (
     equilibrium_constant_from_delta_h_delta_s,
     equilibrium_direction,
     equilibrium_expression,
+    concentration_equilibrium_constant,
+    debye_huckel_activity_coefficient,
+    debye_huckel_activity_coefficients,
+    debye_huckel_a_parameter,
+    debye_huckel_b_parameter_pm,
+    debye_huckel_log10_activity_coefficient,
     formation_constant,
     free_metal_from_total_metal,
     free_metal_concentration,
     henry_law_concentration,
     henry_law_pressure,
     hydrogen_from_ph,
+    interpolate_activity_coefficient,
     ion_product,
+    ionic_strength,
     ka_from_pka,
     ksp_from_molar_solubility,
+    ksp_from_molar_solubility_with_activity,
+    mass_balance,
     molar_solubility_from_ksp,
+    molar_solubility_from_ksp_with_activity,
     molar_solubility_with_common_ions,
+    molar_solubility_with_common_ions_and_activity,
     neutral_ph,
     partial_pressures_from_moles,
     ph_from_hydrogen,
+    ph_from_hydrogen_concentration_activity,
+    ph_from_hydroxide_concentration_activity,
     polyprotic_acid_distribution_fractions,
     polyprotic_species_concentrations,
     precipitation_threshold_concentration,
@@ -49,9 +66,13 @@ from equilibrium import (
     temperature_change_shift,
     weak_acid_hydrogen_concentration,
     weak_acid_ph,
+    weak_acid_ph_with_activity,
     weak_base_hydroxide_concentration,
     weak_base_ph,
+    weak_base_ph_with_activity,
     will_precipitate,
+    will_precipitate_with_activity,
+    thermodynamic_equilibrium_constant,
     kc_from_kp,
     kp_from_kc,
 )
@@ -99,6 +120,62 @@ class EquilibriumConstantTests(unittest.TestCase):
         self.assertLess(result.extent, 0.0)
 
 
+class ActivityCoefficientTests(unittest.TestCase):
+    def test_ionic_strength_and_debye_huckel_coefficients(self):
+        concentrations = {"Mg2+": 0.025, "Cl-": 0.050}
+        charges = {"Mg2+": 2, "Cl-": -1}
+        sizes = {"Mg2+": 800, "Cl-": 300}
+
+        self.assertAlmostEqual(ionic_strength(concentrations, charges), 0.075)
+        self.assertAlmostEqual(debye_huckel_a_parameter(), 0.50930073492646)
+        self.assertAlmostEqual(debye_huckel_b_parameter_pm(), 0.0032863875776494573)
+        self.assertAlmostEqual(
+            debye_huckel_log10_activity_coefficient(2, 0.075, 800),
+            -0.32436470363290587,
+        )
+
+        coefficients = debye_huckel_activity_coefficients(concentrations, charges, sizes)
+        self.assertAlmostEqual(coefficients["Mg2+"], 0.47384390243667895)
+        self.assertAlmostEqual(coefficients["Cl-"], 0.7765606330939845)
+        self.assertAlmostEqual(debye_huckel_activity_coefficient(0, 0.075), 1.0)
+
+    def test_activity_quotients_and_constant_conversion(self):
+        stoichiometry = {"Ca2+": 1, "CO3^2-": 1}
+        concentrations = {"Ca2+": 1.0e-4, "CO3^2-": 1.0e-4}
+        coefficients = {"Ca2+": 0.50, "CO3^2-": 0.40}
+
+        self.assertAlmostEqual(activity_product(concentrations, stoichiometry, coefficients), 2.0e-9)
+        self.assertAlmostEqual(activity_reaction_quotient(concentrations, stoichiometry, coefficients), 2.0e-9)
+        self.assertAlmostEqual(
+            concentration_equilibrium_constant(4.5e-9, stoichiometry, coefficients),
+            2.25e-8,
+        )
+        self.assertAlmostEqual(
+            thermodynamic_equilibrium_constant(2.25e-8, stoichiometry, coefficients),
+            4.5e-9,
+        )
+
+    def test_interpolate_activity_coefficient(self):
+        table = {0.01: 0.90, 0.05: 0.80}
+
+        self.assertAlmostEqual(interpolate_activity_coefficient(0.03, table), 0.85)
+        self.assertAlmostEqual(interpolate_activity_coefficient(0.001, table), 0.90)
+        self.assertAlmostEqual(interpolate_activity_coefficient(0.10, table), 0.80)
+
+    def test_charge_and_mass_balance_helpers(self):
+        charge_result = charge_balance({"Mg2+": 0.025, "Cl-": 0.050}, {"Mg2+": 2, "Cl-": -1})
+        mass_result = mass_balance(
+            0.025,
+            {"Mg2+": 0.020, "MgCl+": 0.005},
+            {"Mg2+": 1, "MgCl+": 1},
+        )
+
+        self.assertTrue(charge_result.balanced)
+        self.assertAlmostEqual(charge_result.positive_charge, charge_result.negative_charge)
+        self.assertTrue(mass_result.balanced)
+        self.assertAlmostEqual(mass_result.accounted_concentration, 0.025)
+
+
 class AcidBaseTests(unittest.TestCase):
     def test_neutral_ph_and_classification_with_nonstandard_kw(self):
         kw_100_c = 5.5e-13
@@ -112,6 +189,8 @@ class AcidBaseTests(unittest.TestCase):
         self.assertAlmostEqual(ph_from_hydrogen(0.0100), 2.0)
         self.assertAlmostEqual(strong_acid_ph(0.0100), 2.0)
         self.assertAlmostEqual(strong_base_ph(0.0350), 12.544068044350276)
+        self.assertAlmostEqual(ph_from_hydrogen_concentration_activity(0.0100, 0.83), 2.0809219076239263)
+        self.assertAlmostEqual(ph_from_hydroxide_concentration_activity(0.0100, 0.76), 11.880813592280791)
 
     def test_weak_acid_helpers(self):
         hydrogen = weak_acid_hydrogen_concentration(0.100, 1.8e-5)
@@ -124,6 +203,10 @@ class AcidBaseTests(unittest.TestCase):
 
         self.assertAlmostEqual(hydroxide, 0.001332670973077975)
         self.assertAlmostEqual(weak_base_ph(0.100, 1.8e-5), 11.125, places=3)
+
+    def test_weak_acid_and_base_activity_corrections(self):
+        self.assertAlmostEqual(weak_acid_ph_with_activity(0.100, 1.8e-5, 0.83, 0.76), 2.8568995838485494)
+        self.assertAlmostEqual(weak_base_ph_with_activity(0.100, 1.8e-5, 0.83, 0.76), 11.104835916056167)
 
     def test_conjugate_constants_and_buffer_ph(self):
         ka = ka_from_pka(4.76)
@@ -193,6 +276,36 @@ class SolubilityTests(unittest.TestCase):
         self.assertAlmostEqual(
             precipitation_threshold_concentration(1.8e-10, 0.0100),
             1.8e-8,
+        )
+
+    def test_activity_corrected_solubility(self):
+        coefficients = {"Ag+": 0.75, "Cl-": 0.76}
+
+        solubility = molar_solubility_from_ksp_with_activity(
+            1.8e-10,
+            {"Ag+": 1, "Cl-": 1},
+            coefficients,
+        )
+        common_ion_solubility = molar_solubility_with_common_ions_and_activity(
+            1.8e-10,
+            {"Ag+": 1, "Cl-": 1},
+            {"Cl-": 0.0100},
+            coefficients,
+        )
+
+        self.assertAlmostEqual(solubility, 1.777046633277277e-5)
+        self.assertAlmostEqual(
+            ksp_from_molar_solubility_with_activity(solubility, {"Ag+": 1, "Cl-": 1}, coefficients),
+            1.8e-10,
+        )
+        self.assertAlmostEqual(common_ion_solubility, 3.157884764606278e-8)
+        self.assertTrue(
+            will_precipitate_with_activity(
+                {"Ag+": 1.0e-4, "Cl-": 1.0e-4},
+                1.8e-10,
+                {"Ag+": 1, "Cl-": 1},
+                coefficients,
+            ).precipitates
         )
 
 
