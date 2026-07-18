@@ -38,6 +38,7 @@ from equilibrium import (
     debye_huckel_a_parameter,
     debye_huckel_b_parameter_pm,
     debye_huckel_log10_activity_coefficient,
+    equivalence_volume_ml,
     formation_constant,
     free_metal_from_total_metal,
     free_metal_concentration,
@@ -45,6 +46,12 @@ from equilibrium import (
     henry_law_pressure,
     hydrogen_from_ph,
     hydrogen_from_strong_acid,
+    indicator_base_acid_ratio,
+    indicator_base_fraction_from_absorbance,
+    indicator_fractions,
+    indicator_ph_from_absorbance,
+    indicator_ph_from_base_acid_ratio,
+    indicator_transition_range,
     interpolate_activity_coefficient,
     ion_product,
     ionic_strength,
@@ -70,6 +77,7 @@ from equilibrium import (
     polyprotic_acid_distribution_fractions,
     polyprotic_acid_distribution_fractions_from_ph,
     polyprotic_acid_mixture_ph,
+    polyprotic_acid_strong_base_titration_ph,
     polyprotic_average_charge,
     polyprotic_net_charge,
     polyprotic_species_charges,
@@ -88,22 +96,29 @@ from equilibrium import (
     successive_to_cumulative_constants,
     strong_acid_ph,
     strong_acid_base_mixture_ph,
+    strong_acid_strong_base_titration_ph,
     strong_base_ph,
+    strong_base_strong_acid_titration_ph,
     strong_reagent_for_target_buffer_ph,
     target_buffer_base_acid_ratio,
+    titrant_molarity_from_primary_standard,
+    titration_curve,
     temperature_change_shift,
+    analyte_molarity_from_titration,
     weak_acid_hydrogen_concentration,
     weak_acid_fraction_dissociated,
     weak_acid_ka_from_fraction_dissociated,
     weak_acid_ph,
     weak_acid_pka_from_ph,
     weak_acid_strong_base_mixture_ph,
+    weak_acid_strong_base_titration_ph,
     weak_acid_ph_with_activity,
     weak_base_hydroxide_concentration,
     weak_base_fraction_protonated,
     weak_base_kb_from_ph,
     weak_base_ph,
     weak_base_strong_acid_mixture_ph,
+    weak_base_strong_acid_titration_ph,
     weak_base_ph_with_activity,
     will_precipitate,
     will_precipitate_with_activity,
@@ -386,6 +401,102 @@ class AcidBaseTests(unittest.TestCase):
             ),
             7.0,
         )
+
+
+class AcidBaseTitrationTests(unittest.TestCase):
+    def test_equivalence_and_standardization_helpers(self):
+        self.assertAlmostEqual(equivalence_volume_ml(0.0100, 50.00, 0.100), 5.00)
+        self.assertAlmostEqual(analyte_molarity_from_titration(0.100, 27.63, 100.0), 0.02763)
+        self.assertAlmostEqual(titrant_molarity_from_primary_standard(0.00100, 20.00), 0.0500)
+
+    def test_strong_acid_strong_base_titration_curve_points(self):
+        self.assertAlmostEqual(
+            strong_acid_strong_base_titration_ph(0.0100, 50.00, 0.100, 0.00),
+            2.0000,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            strong_acid_strong_base_titration_ph(0.0100, 50.00, 0.100, 4.99),
+            4.7403,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            strong_acid_strong_base_titration_ph(0.0100, 50.00, 0.100, 5.00),
+            7.0000,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            strong_base_strong_acid_titration_ph(0.100, 5.00, 0.0100, 50.00),
+            7.0000,
+            places=4,
+        )
+
+        curve = titration_curve(
+            strong_acid_strong_base_titration_ph,
+            [0.0, 5.0, 10.0],
+            0.0100,
+            50.00,
+            0.100,
+        )
+        self.assertEqual(len(curve), 3)
+        self.assertAlmostEqual(curve[1][1], 7.0000)
+
+    def test_weak_acid_and_weak_base_titration_curve_points(self):
+        self.assertAlmostEqual(
+            weak_acid_strong_base_titration_ph(0.0500, 50.00, 0.100, 0.00, 4.76),
+            3.0346,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            weak_acid_strong_base_titration_ph(0.0500, 50.00, 0.100, 12.50, 4.76),
+            4.7600,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            weak_acid_strong_base_titration_ph(0.0500, 50.00, 0.100, 25.00, 4.76),
+            8.6414,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            weak_base_strong_acid_titration_ph(0.0500, 50.00, 0.100, 12.50, 1.0e-5),
+            9.0000,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            weak_base_strong_acid_titration_ph(0.0500, 50.00, 0.100, 25.00, 1.0e-5),
+            5.2386,
+            places=4,
+        )
+
+    def test_polyprotic_acid_titration_curve_points(self):
+        constants = (1.0e-4, 1.0e-8)
+
+        self.assertAlmostEqual(
+            polyprotic_acid_strong_base_titration_ph(0.100, 50.00, 0.100, 0.00, constants),
+            2.5069,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            polyprotic_acid_strong_base_titration_ph(0.100, 50.00, 0.100, 50.00, constants),
+            6.0004,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            polyprotic_acid_strong_base_titration_ph(0.100, 50.00, 0.100, 100.00, constants),
+            10.2614,
+            places=4,
+        )
+
+    def test_indicator_transition_and_spectrophotometric_helpers(self):
+        self.assertAlmostEqual(indicator_base_acid_ratio(8.10, 7.10), 10.0)
+        self.assertAlmostEqual(indicator_ph_from_base_acid_ratio(7.10, 10.0), 8.10)
+        self.assertEqual(indicator_transition_range(7.10), (6.10, 8.10))
+
+        acid_fraction, base_fraction = indicator_fractions(7.10, 7.10)
+        self.assertAlmostEqual(acid_fraction, 0.5)
+        self.assertAlmostEqual(base_fraction, 0.5)
+        self.assertAlmostEqual(indicator_base_fraction_from_absorbance(0.55, 0.10, 1.00), 0.5)
+        self.assertAlmostEqual(indicator_ph_from_absorbance(0.55, 0.10, 1.00, 7.10), 7.10)
 
 
 class SolubilityTests(unittest.TestCase):

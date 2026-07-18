@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import math
 
@@ -1278,6 +1278,246 @@ def weak_base_strong_acid_mixture_ph(
     return strong_acid_ph((strong_acid_amount - weak_base_amount) / final_volume_l, kw=kw)
 
 
+def equivalence_volume_ml(
+    analyte_molarity: float,
+    analyte_volume_ml: float,
+    titrant_molarity: float,
+    analyte_equivalents: float = 1.0,
+    titrant_equivalents: float = 1.0,
+) -> float:
+    """Return titrant volume at acid-base equivalence."""
+    _require_nonnegative(analyte_molarity, "analyte_molarity")
+    _require_nonnegative(analyte_volume_ml, "analyte_volume_ml")
+    _require_positive(titrant_molarity, "titrant_molarity")
+    _require_positive(analyte_equivalents, "analyte_equivalents")
+    _require_positive(titrant_equivalents, "titrant_equivalents")
+    analyte_equivalent_amount = analyte_molarity * _ml_to_l(analyte_volume_ml) * analyte_equivalents
+    return analyte_equivalent_amount / (titrant_molarity * titrant_equivalents) * 1000.0
+
+
+def analyte_molarity_from_titration(
+    titrant_molarity: float,
+    titrant_volume_ml: float,
+    analyte_volume_ml: float,
+    analyte_equivalents: float = 1.0,
+    titrant_equivalents: float = 1.0,
+) -> float:
+    """Return analyte molarity from an equivalence-point titration volume."""
+    _require_nonnegative(titrant_molarity, "titrant_molarity")
+    _require_nonnegative(titrant_volume_ml, "titrant_volume_ml")
+    _require_positive(analyte_volume_ml, "analyte_volume_ml")
+    _require_positive(analyte_equivalents, "analyte_equivalents")
+    _require_positive(titrant_equivalents, "titrant_equivalents")
+    titrant_equivalent_amount = titrant_molarity * _ml_to_l(titrant_volume_ml) * titrant_equivalents
+    return titrant_equivalent_amount / (_ml_to_l(analyte_volume_ml) * analyte_equivalents)
+
+
+def titrant_molarity_from_primary_standard(
+    primary_standard_moles: float,
+    titrant_volume_ml: float,
+    primary_standard_equivalents: float = 1.0,
+    titrant_equivalents: float = 1.0,
+) -> float:
+    """Return titrant molarity from moles of primary standard at equivalence."""
+    _require_nonnegative(primary_standard_moles, "primary_standard_moles")
+    _require_positive(titrant_volume_ml, "titrant_volume_ml")
+    _require_positive(primary_standard_equivalents, "primary_standard_equivalents")
+    _require_positive(titrant_equivalents, "titrant_equivalents")
+    titrant_moles = primary_standard_moles * primary_standard_equivalents / titrant_equivalents
+    return titrant_moles / _ml_to_l(titrant_volume_ml)
+
+
+def strong_acid_strong_base_titration_ph(
+    acid_molarity: float,
+    acid_volume_ml: float,
+    base_molarity: float,
+    base_volume_ml: float,
+    acidic_protons: float = 1.0,
+    hydroxides: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for titrating a strong acid with a strong base."""
+    acid_amount = acid_molarity * _ml_to_l(acid_volume_ml)
+    base_amount = base_molarity * _ml_to_l(base_volume_ml)
+    final_volume_l = _ml_to_l(acid_volume_ml + base_volume_ml)
+    return strong_acid_base_mixture_ph(
+        acid_amount,
+        base_amount,
+        final_volume_l,
+        acidic_protons,
+        hydroxides,
+        kw,
+    )
+
+
+def strong_base_strong_acid_titration_ph(
+    base_molarity: float,
+    base_volume_ml: float,
+    acid_molarity: float,
+    acid_volume_ml: float,
+    hydroxides: float = 1.0,
+    acidic_protons: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for titrating a strong base with a strong acid."""
+    return strong_acid_strong_base_titration_ph(
+        acid_molarity,
+        acid_volume_ml,
+        base_molarity,
+        base_volume_ml,
+        acidic_protons,
+        hydroxides,
+        kw,
+    )
+
+
+def weak_acid_strong_base_titration_ph(
+    acid_molarity: float,
+    acid_volume_ml: float,
+    base_molarity: float,
+    base_volume_ml: float,
+    pka: float,
+    hydroxides: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for titrating a monoprotic weak acid with strong base."""
+    acid_amount = acid_molarity * _ml_to_l(acid_volume_ml)
+    base_amount = base_molarity * _ml_to_l(base_volume_ml) * hydroxides
+    final_volume_l = _ml_to_l(acid_volume_ml + base_volume_ml)
+    return weak_acid_strong_base_mixture_ph(
+        acid_amount,
+        base_amount,
+        final_volume_l,
+        pka,
+        kw,
+    )
+
+
+def weak_base_strong_acid_titration_ph(
+    base_molarity: float,
+    base_volume_ml: float,
+    acid_molarity: float,
+    acid_volume_ml: float,
+    kb: float,
+    acidic_protons: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return pH for titrating a monoprotic weak base with strong acid."""
+    base_amount = base_molarity * _ml_to_l(base_volume_ml)
+    acid_amount = acid_molarity * _ml_to_l(acid_volume_ml) * acidic_protons
+    final_volume_l = _ml_to_l(base_volume_ml + acid_volume_ml)
+    return weak_base_strong_acid_mixture_ph(
+        base_amount,
+        acid_amount,
+        final_volume_l,
+        kb,
+        kw,
+    )
+
+
+def polyprotic_acid_strong_base_titration_ph(
+    acid_molarity: float,
+    acid_volume_ml: float,
+    base_molarity: float,
+    base_volume_ml: float,
+    acid_dissociation_constants: list[float] | tuple[float, ...],
+    fully_protonated_charge: float = 0.0,
+    hydroxides: float = 1.0,
+    kw: float = KW_25C,
+) -> float:
+    """Return exact pH for titrating HnA with strong base."""
+    acid_amount = acid_molarity * _ml_to_l(acid_volume_ml)
+    base_equivalents = base_molarity * _ml_to_l(base_volume_ml) * hydroxides
+    final_volume_l = _ml_to_l(acid_volume_ml + base_volume_ml)
+    species_amounts = (acid_amount,) + (0.0,) * len(acid_dissociation_constants)
+    return polyprotic_acid_mixture_ph(
+        species_amounts,
+        final_volume_l,
+        acid_dissociation_constants,
+        fully_protonated_charge,
+        strong_cation_amount=base_equivalents,
+        kw=kw,
+    )
+
+
+def titration_curve(
+    titration_function,
+    titrant_volumes_ml: Iterable[float],
+    *args,
+    **kwargs,
+) -> tuple[tuple[float, float], ...]:
+    """Return ``(titrant_volume_ml, pH)`` points for a titration function."""
+    return tuple(
+        (volume_ml, titration_function(*args, volume_ml, **kwargs))
+        for volume_ml in titrant_volumes_ml
+    )
+
+
+def indicator_base_acid_ratio(ph: float, pka: float) -> float:
+    """Return [In-]/[HIn] for an acid-base indicator at pH."""
+    return 10.0 ** (ph - pka)
+
+
+def indicator_ph_from_base_acid_ratio(pka: float, base_acid_ratio: float) -> float:
+    """Return pH from an indicator [In-]/[HIn] ratio."""
+    _require_positive(base_acid_ratio, "base_acid_ratio")
+    return pka + math.log10(base_acid_ratio)
+
+
+def indicator_fractions(ph: float, pka: float) -> tuple[float, float]:
+    """Return ``(acid_fraction, base_fraction)`` for HIn/In- at pH."""
+    ratio = indicator_base_acid_ratio(ph, pka)
+    acid_fraction = 1.0 / (1.0 + ratio)
+    return acid_fraction, ratio * acid_fraction
+
+
+def indicator_transition_range(
+    pka: float,
+    lower_base_acid_ratio: float = 0.1,
+    upper_base_acid_ratio: float = 10.0,
+) -> tuple[float, float]:
+    """Return pH range over which an indicator visibly changes color."""
+    lower = indicator_ph_from_base_acid_ratio(pka, lower_base_acid_ratio)
+    upper = indicator_ph_from_base_acid_ratio(pka, upper_base_acid_ratio)
+    return (lower, upper) if lower <= upper else (upper, lower)
+
+
+def indicator_base_fraction_from_absorbance(
+    absorbance: float,
+    acid_form_absorbance: float,
+    base_form_absorbance: float,
+) -> float:
+    """Return indicator base-form fraction from absorbance of the mixture."""
+    if math.isclose(base_form_absorbance, acid_form_absorbance):
+        raise ValueError("acid and base form absorbances must be distinct.")
+    fraction = (absorbance - acid_form_absorbance) / (
+        base_form_absorbance - acid_form_absorbance
+    )
+    if fraction < -1e-12 or fraction > 1.0 + 1e-12:
+        raise ValueError("absorbance is outside the acid/base form range.")
+    return min(max(fraction, 0.0), 1.0)
+
+
+def indicator_ph_from_absorbance(
+    absorbance: float,
+    acid_form_absorbance: float,
+    base_form_absorbance: float,
+    pka: float,
+) -> float:
+    """Return pH from an indicator absorbance and pure-form absorbances."""
+    base_fraction = indicator_base_fraction_from_absorbance(
+        absorbance,
+        acid_form_absorbance,
+        base_form_absorbance,
+    )
+    if math.isclose(base_fraction, 0.0) or math.isclose(base_fraction, 1.0):
+        raise ValueError("pH is undefined when only one indicator form is present.")
+    return indicator_ph_from_base_acid_ratio(
+        pka,
+        base_fraction / (1.0 - base_fraction),
+    )
+
+
 def monoprotic_acid_charge_balance_ph(
     total_acid_concentration: float,
     ka: float,
@@ -2421,6 +2661,11 @@ def _require_nonnegative(value: float, name: str) -> None:
 def _require_fraction_between_zero_and_one(value: float, name: str) -> None:
     if value <= 0 or value >= 1:
         raise ValueError(f"{name} must be greater than 0 and less than 1.")
+
+
+def _ml_to_l(volume_ml: float) -> float:
+    _require_nonnegative(volume_ml, "volume_ml")
+    return volume_ml / 1000.0
 
 
 def _validate_acid_dissociation_constants(constants: list[float] | tuple[float, ...]) -> None:
