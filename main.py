@@ -29,6 +29,16 @@ from equilibrium import (
     weak_acid_ph,
     will_precipitate,
 )
+from edta import (
+    back_edta_titration,
+    edta_conditional_formation_constant,
+    edta_titration_state,
+    edta_y4_fraction_from_ph,
+    free_metal_fraction_with_complexing_agent,
+    metal_buffer_free_metal_concentration,
+    metal_indicator_color,
+    p_metal_from_concentration,
+)
 from measurements import (
     BuretCalibration,
     aqueous_molarity_at_temperature,
@@ -144,6 +154,32 @@ def demonstrate_equilibrium() -> None:
     print(f"  Henry's law dissolved gas: {dissolved_gas:.2e} M")
 
 
+def demonstrate_edta_complexometry() -> None:
+    """Show EDTA conditional constants, titration curves, and back titration."""
+    alpha_y4 = edta_y4_fraction_from_ph(10.00)
+    conditional_kf = edta_conditional_formation_constant(5.0e10, 10.00)
+    print("\nEDTA complexometric titrations")
+    print(f"  alpha_Y4- at pH 10.00: {alpha_y4:.3f}")
+    print(f"  conditional Kf for CaY2- at pH 10.00: {conditional_kf:.2e}")
+
+    metal_alpha = free_metal_fraction_with_complexing_agent(1.00, (1.0e4, 1.0e8, 1.0e12, 1.0e13))
+    print(f"  free-metal fraction with 1.00 M auxiliary ligand: {metal_alpha:.2e}")
+
+    free_metal = metal_buffer_free_metal_concentration(0.0100, 0.0500, 1.0e8)
+    print(f"  EDTA metal buffer pM: {p_metal_from_concentration(free_metal):.3f}")
+
+    for volume_ml in (50.0, 100.0, 150.0):
+        state = edta_titration_state(0.0010, 100.0, 0.0010, volume_ml, 1.0e10)
+        print(f"  pM after {volume_ml:.1f} mL EDTA: {state.p_metal:.3f} ({state.stage})")
+
+    before_color = metal_indicator_color(1.0e-3, 1.0e6, "blue", "red")
+    after_color = metal_indicator_color(1.0e-9, 1.0e6, "blue", "red")
+    print(f"  metal indicator color before/after equivalence: {before_color} -> {after_color}")
+
+    back_titration = back_edta_titration(0.0500, 25.00, 0.02127, 25.63, sample_volume_ml=50.00)
+    print(f"  back-titration analyte concentration: {back_titration.analyte_molarity:.5f} M")
+
+
 def demonstrate_measurement_corrections() -> None:
     """Show balance, temperature, and glassware calibration calculations."""
     water_mass_15 = true_mass_from_apparent(5.3974, water_density_g_per_ml(15.0))
@@ -256,6 +292,7 @@ if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
     demonstrate_equilibrium()
+    demonstrate_edta_complexometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()
     demonstrate_experimental_error()

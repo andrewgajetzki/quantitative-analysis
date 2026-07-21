@@ -28,6 +28,7 @@ The current toolkit focuses on chemical measurement calculations:
 - Ksp solubility, common-ion, precipitation, complex-ion, thermodynamic K, and Henry's law helpers
 - salt hydrolysis, polyprotic acid distributions, Kp/Kc, gas pressure quotients, and Le Chatelier shifts
 - ionic strength, Debye-Huckel activity coefficients, activity-corrected pH/Ksp, and balance checks
+- EDTA alpha fractions, conditional formation constants, pM titration curves, metal indicators, and direct/back/displacement EDTA assays
 
 ## Project Layout
 
@@ -35,6 +36,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `formula.py` parses formulas such as `H2SO4`, `Ca(NO3)2`, and `CuSO4.5H2O`.
 - `solutions.py` contains concentration and dilution helpers.
 - `equilibrium.py` contains chemical-equilibrium, acid-base, solubility, and thermodynamic helpers.
+- `edta.py` contains complexometric EDTA titration, indicator, and assay helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
@@ -79,6 +81,13 @@ from equilibrium import (
     salt_solution_character,
     weak_acid_ph,
     will_precipitate,
+)
+from edta import (
+    back_edta_titration,
+    edta_conditional_formation_constant,
+    edta_titration_state,
+    edta_y4_fraction_from_ph,
+    metal_indicator_color,
 )
 from measurements import (
     concentration_from_internal_standard,
@@ -165,6 +174,13 @@ print(ph_from_hydrogen_concentration_activity(0.0100, 0.83))
 print(molar_solubility_from_ksp(1.8e-10, {"Ag+": 1, "Cl-": 1}))
 print(molar_solubility_from_ksp_with_activity(1.8e-10, {"Ag+": 1, "Cl-": 1}, {"Ag+": 0.75, "Cl-": 0.76}))
 print(will_precipitate({"Ag+": 1.0e-4, "Cl-": 1.0e-4}, 1.8e-10, {"Ag+": 1, "Cl-": 1}))
+
+print(edta_y4_fraction_from_ph(10.00))
+print(edta_conditional_formation_constant(5.0e10, 10.00))
+state = edta_titration_state(0.0010, 100.0, 0.0010, 100.0, 1.0e10)
+print(state.p_metal, state.stage)
+print(metal_indicator_color(1.0e-9, 1.0e6, "blue", "red"))
+print(back_edta_titration(0.0500, 25.00, 0.02127, 25.63, sample_volume_ml=50.00).analyte_molarity)
 ```
 
 ## Adding New Analysis Areas
