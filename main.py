@@ -39,6 +39,15 @@ from edta import (
     metal_indicator_color,
     p_metal_from_concentration,
 )
+from activity_equilibrium import (
+    AcidBaseComponent,
+    concentration_equilibrium_constant_with_davies,
+    davies_activity_coefficient,
+    davies_concentration_pka,
+    fit_pkas_from_mean_charge,
+    polyprotic_activity_average_charge,
+    solve_acid_base_mixture_activity,
+)
 from measurements import (
     BuretCalibration,
     aqueous_molarity_at_temperature,
@@ -152,6 +161,41 @@ def demonstrate_equilibrium() -> None:
     print(f"  Kp from Kc for N2 + 3 H2 <=> 2 NH3: {kp:.2e}")
     print(f"  pressure increase shift for 2 F2(g) -> CF4(g): {pressure_change_shift({'CF4': 1, 'F2': -2}, True)}")
     print(f"  Henry's law dissolved gas: {dissolved_gas:.2e} M")
+
+
+def demonstrate_activity_corrected_equilibrium() -> None:
+    """Show Davies coefficients and activity-corrected acid-base calculations."""
+    gamma_01 = davies_activity_coefficient(1, 0.100)
+    glycine_pka2 = davies_concentration_pka(9.778, acid_charge=0, conjugate_base_charge=-1, ionic_strength=0.100)
+    print("\nActivity-corrected equilibrium")
+    print(f"  Davies gamma for z=+/-1 at ionic strength 0.100 M: {gamma_01:.3f}")
+    print(f"  glycine pKa2 at ionic strength 0.100 M: {glycine_pka2:.3f}")
+
+    acid_component = AcidBaseComponent.from_pkas(0.0100, (5.00,), (0, -1), ("HA", "A-"))
+    acid_base_result = solve_acid_base_mixture_activity(
+        (acid_component,),
+        {"K+": 0.00050},
+        {"K+": 1},
+    )
+    print(f"  nonideal pH for 0.0100 M HA + 0.00050 M KOH: {acid_base_result.ph:.3f}")
+
+    fescn_k = concentration_equilibrium_constant_with_davies(
+        1.40e2,
+        {"FeSCN2+": 1, "Fe3+": -1, "SCN-": -1},
+        {"FeSCN2+": 2, "Fe3+": 3, "SCN-": -1},
+        0.005,
+    )
+    print(f"  activity-corrected K' for FeSCN2+ at ionic strength 0.005 M: {fescn_k:.1f}")
+
+    ph_values = (2.0, 3.0, 6.0, 9.0, 10.0)
+    glycine_charges = (1, 0, -1)
+    glycine_constants = (10.0**-2.350, 10.0**-9.778)
+    measured_mean_charges = tuple(
+        polyprotic_activity_average_charge(ph, glycine_constants, glycine_charges, (1.0, 1.0, 1.0))
+        for ph in ph_values
+    )
+    pka_fit = fit_pkas_from_mean_charge(ph_values, measured_mean_charges, glycine_charges, (2.0, 10.0))
+    print(f"  fitted glycine pKa values from mean-charge data: {pka_fit.pkas[0]:.3f}, {pka_fit.pkas[1]:.3f}")
 
 
 def demonstrate_edta_complexometry() -> None:
@@ -292,6 +336,7 @@ if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
     demonstrate_equilibrium()
+    demonstrate_activity_corrected_equilibrium()
     demonstrate_edta_complexometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()

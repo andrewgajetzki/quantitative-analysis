@@ -28,6 +28,7 @@ The current toolkit focuses on chemical measurement calculations:
 - Ksp solubility, common-ion, precipitation, complex-ion, thermodynamic K, and Henry's law helpers
 - salt hydrolysis, polyprotic acid distributions, Kp/Kc, gas pressure quotients, and Le Chatelier shifts
 - ionic strength, Debye-Huckel activity coefficients, activity-corrected pH/Ksp, and balance checks
+- Davies activity coefficients, apparent pKa/K values, activity-corrected acid-base charge balance, and pKa fitting
 - EDTA alpha fractions, conditional formation constants, pM titration curves, metal indicators, and direct/back/displacement EDTA assays
 
 ## Project Layout
@@ -36,6 +37,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `formula.py` parses formulas such as `H2SO4`, `Ca(NO3)2`, and `CuSO4.5H2O`.
 - `solutions.py` contains concentration and dilution helpers.
 - `equilibrium.py` contains chemical-equilibrium, acid-base, solubility, and thermodynamic helpers.
+- `activity_equilibrium.py` contains Davies activity-corrected acid-base and coupled-equilibrium helpers.
 - `edta.py` contains complexometric EDTA titration, indicator, and assay helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
@@ -88,6 +90,13 @@ from edta import (
     edta_titration_state,
     edta_y4_fraction_from_ph,
     metal_indicator_color,
+)
+from activity_equilibrium import (
+    AcidBaseComponent,
+    concentration_equilibrium_constant_with_davies,
+    davies_activity_coefficient,
+    davies_concentration_pka,
+    solve_acid_base_mixture_activity,
 )
 from measurements import (
     concentration_from_internal_standard,
@@ -181,6 +190,19 @@ state = edta_titration_state(0.0010, 100.0, 0.0010, 100.0, 1.0e10)
 print(state.p_metal, state.stage)
 print(metal_indicator_color(1.0e-9, 1.0e6, "blue", "red"))
 print(back_edta_titration(0.0500, 25.00, 0.02127, 25.63, sample_volume_ml=50.00).analyte_molarity)
+
+print(davies_activity_coefficient(1, 0.100))
+print(davies_concentration_pka(9.778, acid_charge=0, conjugate_base_charge=-1, ionic_strength=0.100))
+acid = AcidBaseComponent.from_pkas(0.0100, (5.00,), (0, -1), ("HA", "A-"))
+print(solve_acid_base_mixture_activity((acid,), {"K+": 0.00050}, {"K+": 1}).ph)
+print(
+    concentration_equilibrium_constant_with_davies(
+        1.40e2,
+        {"FeSCN2+": 1, "Fe3+": -1, "SCN-": -1},
+        {"FeSCN2+": 2, "Fe3+": 3, "SCN-": -1},
+        0.005,
+    )
+)
 ```
 
 ## Adding New Analysis Areas
