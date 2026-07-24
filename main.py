@@ -39,6 +39,17 @@ from edta import (
     metal_indicator_color,
     p_metal_from_concentration,
 )
+from electrochemistry import (
+    amp_hours_from_moles_electrons,
+    cell_potential,
+    charge_from_current_time,
+    delta_g_from_cell_potential,
+    electrical_energy_j,
+    equilibrium_constant_from_cell_potential,
+    mass_from_current_time,
+    nernst_potential,
+    spontaneous_galvanic_cell,
+)
 from activity_equilibrium import (
     AcidBaseComponent,
     concentration_equilibrium_constant_with_davies,
@@ -198,6 +209,43 @@ def demonstrate_activity_corrected_equilibrium() -> None:
     print(f"  fitted glycine pKa values from mean-charge data: {pka_fit.pkas[0]:.3f}, {pka_fit.pkas[1]:.3f}")
 
 
+def demonstrate_electrochemistry() -> None:
+    """Show cell potentials, Nernst corrections, and Faraday electrolysis."""
+    zn_cu_cell = spontaneous_galvanic_cell(
+        {
+            "Cu2+/Cu": 0.340,
+            "Zn2+/Zn": -0.763,
+        },
+        electrons_transferred=2,
+    )
+    print("\nElectrochemistry")
+    print(f"  Zn/Cu cathode: {zn_cu_cell.cathode}, anode: {zn_cu_cell.anode}")
+    print(f"  Zn/Cu E standard: {zn_cu_cell.standard_cell_potential_v:.3f} V")
+    print(f"  Zn/Cu Delta G standard: {delta_g_from_cell_potential(2, zn_cu_cell.standard_cell_potential_v) / 1000:.1f} kJ/mol")
+    print(f"  Zn/Cu K from E standard: {equilibrium_constant_from_cell_potential(2, zn_cu_cell.standard_cell_potential_v):.2e}")
+
+    ag_cu_q = 0.0300 / 0.0100**2
+    ag_cu_e = cell_potential(
+        cathode_reduction_potential_v=0.7996,
+        anode_reduction_potential_v=0.340,
+        electrons_transferred=2,
+        reaction_quotient=ag_cu_q,
+    )
+    print(f"  Ag/Cu E at [Cu2+]=0.0300 M and [Ag+]=0.0100 M: {ag_cu_e:.3f} V")
+
+    hydrogen_activity = 10.0**-3.0
+    arsine_q = 1.0 / hydrogen_activity**3
+    arsine_e = nernst_potential(-0.238, electrons_transferred=3, reaction_quotient=arsine_q)
+    print(f"  AsH3 half-cell potential at pH 3.00 and 1 bar AsH3: {arsine_e:.3f} V")
+
+    charge = charge_from_current_time(1.00, 3600.0)
+    silver_mass = mass_from_current_time(1.00, 3600.0, 107.8682, electrons_per_mole_product=1)
+    print(f"  charge from 1.00 A for 1.00 h: {charge:.0f} C")
+    print(f"  Ag deposited by that charge: {silver_mass:.3f} g")
+    print(f"  capacity for 1 mol e-: {amp_hours_from_moles_electrons(1.0):.2f} A h")
+    print(f"  energy from 3600 C at 1.50 V: {electrical_energy_j(charge, 1.50):.0f} J")
+
+
 def demonstrate_edta_complexometry() -> None:
     """Show EDTA conditional constants, titration curves, and back titration."""
     alpha_y4 = edta_y4_fraction_from_ph(10.00)
@@ -337,6 +385,7 @@ if __name__ == "__main__":
     demonstrate_stoichiometry()
     demonstrate_equilibrium()
     demonstrate_activity_corrected_equilibrium()
+    demonstrate_electrochemistry()
     demonstrate_edta_complexometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()

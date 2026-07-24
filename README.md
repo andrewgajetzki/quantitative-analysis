@@ -30,6 +30,7 @@ The current toolkit focuses on chemical measurement calculations:
 - ionic strength, Debye-Huckel activity coefficients, activity-corrected pH/Ksp, and balance checks
 - Davies activity coefficients, apparent pKa/K values, activity-corrected acid-base charge balance, and pKa fitting
 - EDTA alpha fractions, conditional formation constants, pM titration curves, metal indicators, and direct/back/displacement EDTA assays
+- electrochemical cells, Nernst equation, Delta G/K from E, Faraday electrolysis, amp-hours, and electrical energy
 
 ## Project Layout
 
@@ -39,6 +40,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `equilibrium.py` contains chemical-equilibrium, acid-base, solubility, and thermodynamic helpers.
 - `activity_equilibrium.py` contains Davies activity-corrected acid-base and coupled-equilibrium helpers.
 - `edta.py` contains complexometric EDTA titration, indicator, and assay helpers.
+- `electrochemistry.py` contains cell-potential, Nernst, thermodynamic, electrolysis, battery-capacity, and electrical-energy helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
@@ -46,6 +48,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `constants.py` contains atomic masses and scientific constants.
 - `tests/test_chem.py` verifies chemistry calculations.
 - `tests/test_equilibrium.py` verifies equilibrium, acid-base, solubility, and thermodynamic calculations.
+- `tests/test_electrochemistry.py` verifies electrochemical cell, Nernst, and electrolysis calculations.
 - `tests/test_measurements.py` verifies balance, glassware, temperature, and calibration calculations.
 
 ## Run Examples
@@ -90,6 +93,11 @@ from edta import (
     edta_titration_state,
     edta_y4_fraction_from_ph,
     metal_indicator_color,
+)
+from electrochemistry import (
+    cell_potential,
+    mass_from_current_time,
+    spontaneous_galvanic_cell,
 )
 from activity_equilibrium import (
     AcidBaseComponent,
@@ -203,6 +211,11 @@ print(
         0.005,
     )
 )
+
+cell = spontaneous_galvanic_cell({"Cu2+/Cu": 0.340, "Zn2+/Zn": -0.763}, electrons_transferred=2)
+print(cell.cathode, cell.anode, cell.standard_cell_potential_v)
+print(cell_potential(0.7996, 0.340, 2, 0.0300 / 0.0100**2))
+print(mass_from_current_time(1.00, 3600.0, 107.8682, electrons_per_mole_product=1))
 ```
 
 ## Adding New Analysis Areas
