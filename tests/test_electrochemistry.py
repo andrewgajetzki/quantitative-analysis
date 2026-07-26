@@ -17,6 +17,17 @@ from electrochemistry import (
     electrical_energy_j,
     energy_from_current_voltage_time,
     equilibrium_constant_from_cell_potential,
+    fit_ion_selective_calibration,
+    glass_electrode_ph,
+    glass_electrode_ph_from_two_buffers,
+    glass_electrode_slope_from_buffers,
+    interfering_activity_for_equal_response,
+    ion_activity_from_potential,
+    ion_selective_intercept,
+    ion_selective_interference_error_percent,
+    ion_selective_potential_change,
+    ion_selective_potential_with_interference,
+    IonInterference,
     mass_from_charge,
     mass_from_current_time,
     moles_electrons_from_amp_hours,
@@ -24,6 +35,7 @@ from electrochemistry import (
     moles_product_from_charge,
     nernst_log10_slope_v,
     nernst_potential,
+    potentiometric_standard_addition_concentration,
     power_from_current_voltage,
     spontaneous_galvanic_cell,
     standard_cell_potential,
@@ -81,6 +93,138 @@ class CellPotentialTests(unittest.TestCase):
         potential = concentration_cell_potential(0.100, 0.0100, electrons_transferred=1)
 
         self.assertAlmostEqual(potential, 0.05915935, places=8)
+
+
+class IonSelectiveElectrodeTests(unittest.TestCase):
+    def test_cyanide_electrode_calibration_and_unknown(self):
+        intercept = ion_selective_intercept(
+            potential_v=-0.230,
+            activity=1.00e-3,
+            ion_charge=-1,
+        )
+        concentration = ion_activity_from_potential(
+            potential_v=-0.300,
+            intercept_v=intercept,
+            ion_charge=-1,
+        )
+
+        self.assertAlmostEqual(intercept, -0.40747805, places=8)
+        self.assertAlmostEqual(concentration, 0.01524912, places=8)
+
+    def test_divalent_cation_electrode_potential_change(self):
+        delta_e = ion_selective_potential_change(
+            initial_activity=1.00e-4,
+            final_activity=1.00e-2,
+            ion_charge=2,
+        )
+
+        self.assertAlmostEqual(delta_e, 0.05915935, places=8)
+
+    def test_glass_electrode_one_and_two_buffer_ph_calibration(self):
+        ph_one_buffer = glass_electrode_ph(
+            potential_v=0.023,
+            reference_potential_v=0.200,
+            reference_ph=4.00,
+        )
+        slope = glass_electrode_slope_from_buffers(
+            first_ph=4.00,
+            first_potential_v=0.200,
+            second_ph=7.00,
+            second_potential_v=0.200 - 3.0 * nernst_log10_slope_v(1),
+        )
+        ph_two_buffer = glass_electrode_ph_from_two_buffers(
+            potential_v=0.023,
+            first_ph=4.00,
+            first_potential_v=0.200,
+            second_ph=7.00,
+            second_potential_v=0.200 - 3.0 * nernst_log10_slope_v(1),
+        )
+
+        self.assertAlmostEqual(ph_one_buffer, 6.9919, places=4)
+        self.assertAlmostEqual(slope, nernst_log10_slope_v(1), places=8)
+        self.assertAlmostEqual(ph_two_buffer, 6.9919, places=4)
+
+    def test_selectivity_coefficient_interference_error(self):
+        percent_error_ph_8 = ion_selective_interference_error_percent(
+            primary_activity=1.00e-8,
+            interfering_activity=1.00e-2,
+            selectivity_coefficient=10.0**-7.8,
+            primary_charge=1,
+            interfering_charge=2,
+        )
+        percent_error_ph_4 = ion_selective_interference_error_percent(
+            primary_activity=1.00e-4,
+            interfering_activity=1.00e-2,
+            selectivity_coefficient=10.0**-7.8,
+            primary_charge=1,
+            interfering_charge=2,
+        )
+
+        self.assertAlmostEqual(percent_error_ph_8, 15.8489, places=4)
+        self.assertAlmostEqual(percent_error_ph_4, 0.00158489, places=8)
+
+    def test_interferent_equal_response_activity(self):
+        interfering_activity = interfering_activity_for_equal_response(
+            primary_activity=1.00e-5,
+            selectivity_coefficient=1.00e-3,
+            primary_charge=1,
+            interfering_charge=2,
+        )
+
+        self.assertAlmostEqual(interfering_activity, 1.00e-4, places=12)
+
+    def test_potential_with_nikolsky_eisenman_interference(self):
+        potential_without_interference = ion_selective_potential_with_interference(
+            intercept_v=0.100,
+            primary_activity=1.00e-6,
+            primary_charge=1,
+        )
+        potential_with_interference = ion_selective_potential_with_interference(
+            intercept_v=0.100,
+            primary_activity=1.00e-6,
+            primary_charge=1,
+            interferences=(
+                IonInterference(
+                    activity=1.00e-4,
+                    selectivity_coefficient=1.00e-2,
+                    ion_charge=1,
+                ),
+            ),
+        )
+
+        self.assertAlmostEqual(potential_without_interference, -0.25495610, places=8)
+        self.assertAlmostEqual(potential_with_interference, -0.23714736, places=8)
+
+    def test_empirical_ise_calibration_curve(self):
+        calibration = fit_ion_selective_calibration(
+            activities=[3.38e-5, 3.38e-4, 3.38e-3, 3.38e-2, 3.38e-1],
+            potentials_v=[-74.8e-3, -46.4e-3, -18.7e-3, 10.0e-3, 37.7e-3],
+        )
+
+        self.assertAlmostEqual(calibration.slope_v_per_decade, 0.02814, places=5)
+        self.assertAlmostEqual(calibration.intercept_v, 0.05109628, places=8)
+        self.assertAlmostEqual(calibration.activity(0.0), 0.01528311, places=8)
+
+    def test_potentiometric_standard_addition_for_cation_and_anion(self):
+        cation_unknown = potentiometric_standard_addition_concentration(
+            initial_potential_v=0.100,
+            final_potential_v=0.14034292963119627,
+            sample_volume_ml=25.00,
+            standard_volume_ml=1.00,
+            standard_concentration=0.100,
+            ion_charge=1,
+        )
+        anion_unknown = potentiometric_standard_addition_concentration(
+            initial_potential_v=0.100,
+            final_potential_v=0.05965707036880374,
+            sample_volume_ml=25.00,
+            standard_volume_ml=1.00,
+            standard_concentration=0.100,
+            ion_charge=-1,
+        )
+
+        self.assertAlmostEqual(cation_unknown, 1.00e-3, places=12)
+        self.assertAlmostEqual(anion_unknown, 1.00e-3, places=12)
 
 
 class FaradayElectrolysisTests(unittest.TestCase):

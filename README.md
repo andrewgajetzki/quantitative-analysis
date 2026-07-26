@@ -31,6 +31,7 @@ The current toolkit focuses on chemical measurement calculations:
 - Davies activity coefficients, apparent pKa/K values, activity-corrected acid-base charge balance, and pKa fitting
 - EDTA alpha fractions, conditional formation constants, pM titration curves, metal indicators, and direct/back/displacement EDTA assays
 - electrochemical cells, Nernst equation, Delta G/K from E, Faraday electrolysis, amp-hours, and electrical energy
+- ion-selective and glass electrodes, selectivity/interference, potentiometric calibration, and standard addition
 
 ## Project Layout
 
@@ -40,7 +41,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `equilibrium.py` contains chemical-equilibrium, acid-base, solubility, and thermodynamic helpers.
 - `activity_equilibrium.py` contains Davies activity-corrected acid-base and coupled-equilibrium helpers.
 - `edta.py` contains complexometric EDTA titration, indicator, and assay helpers.
-- `electrochemistry.py` contains cell-potential, Nernst, thermodynamic, electrolysis, battery-capacity, and electrical-energy helpers.
+- `electrochemistry.py` contains cell-potential, Nernst, thermodynamic, electrolysis, battery-capacity, electrical-energy, and ion-selective-electrode helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
@@ -96,7 +97,11 @@ from edta import (
 )
 from electrochemistry import (
     cell_potential,
+    glass_electrode_ph,
+    ion_activity_from_potential,
+    ion_selective_intercept,
     mass_from_current_time,
+    potentiometric_standard_addition_concentration,
     spontaneous_galvanic_cell,
 )
 from activity_equilibrium import (
@@ -216,6 +221,19 @@ cell = spontaneous_galvanic_cell({"Cu2+/Cu": 0.340, "Zn2+/Zn": -0.763}, electron
 print(cell.cathode, cell.anode, cell.standard_cell_potential_v)
 print(cell_potential(0.7996, 0.340, 2, 0.0300 / 0.0100**2))
 print(mass_from_current_time(1.00, 3600.0, 107.8682, electrons_per_mole_product=1))
+cn_intercept = ion_selective_intercept(-0.230, 1.00e-3, ion_charge=-1)
+print(ion_activity_from_potential(-0.300, cn_intercept, ion_charge=-1))
+print(glass_electrode_ph(0.023, reference_potential_v=0.200, reference_ph=4.00))
+print(
+    potentiometric_standard_addition_concentration(
+        0.100,
+        0.14034292963119627,
+        sample_volume_ml=25.00,
+        standard_volume_ml=1.00,
+        standard_concentration=0.100,
+        ion_charge=1,
+    )
+)
 ```
 
 ## Adding New Analysis Areas

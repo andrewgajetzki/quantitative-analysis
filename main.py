@@ -46,8 +46,14 @@ from electrochemistry import (
     delta_g_from_cell_potential,
     electrical_energy_j,
     equilibrium_constant_from_cell_potential,
+    fit_ion_selective_calibration,
+    glass_electrode_ph,
+    ion_activity_from_potential,
+    ion_selective_intercept,
+    ion_selective_interference_error_percent,
     mass_from_current_time,
     nernst_potential,
+    potentiometric_standard_addition_concentration,
     spontaneous_galvanic_cell,
 )
 from activity_equilibrium import (
@@ -244,6 +250,41 @@ def demonstrate_electrochemistry() -> None:
     print(f"  Ag deposited by that charge: {silver_mass:.3f} g")
     print(f"  capacity for 1 mol e-: {amp_hours_from_moles_electrons(1.0):.2f} A h")
     print(f"  energy from 3600 C at 1.50 V: {electrical_energy_j(charge, 1.50):.0f} J")
+
+    cn_intercept = ion_selective_intercept(-0.230, 1.00e-3, ion_charge=-1)
+    cn_unknown = ion_activity_from_potential(-0.300, cn_intercept, ion_charge=-1)
+    print(f"  CN- electrode intercept: {cn_intercept:.3f} V, unknown [CN-]: {cn_unknown:.3e} M")
+
+    sample_ph = glass_electrode_ph(0.023, reference_potential_v=0.200, reference_ph=4.00)
+    print(f"  glass electrode pH from one buffer: {sample_ph:.3f}")
+
+    ca_error = ion_selective_interference_error_percent(
+        primary_activity=1.00e-8,
+        interfering_activity=1.00e-2,
+        selectivity_coefficient=10.0**-7.8,
+        primary_charge=1,
+        interfering_charge=2,
+    )
+    print(f"  H+ electrode Ca2+ interference at pH 8.00: {ca_error:.1f}%")
+
+    ise_calibration = fit_ion_selective_calibration(
+        [3.38e-5, 3.38e-4, 3.38e-3, 3.38e-2, 3.38e-1],
+        [-74.8e-3, -46.4e-3, -18.7e-3, 10.0e-3, 37.7e-3],
+    )
+    print(
+        "  Ca2+ ISE calibration slope: "
+        f"{ise_calibration.slope_v_per_decade * 1000:.2f} mV/decade"
+    )
+
+    standard_addition_unknown = potentiometric_standard_addition_concentration(
+        initial_potential_v=0.100,
+        final_potential_v=0.14034292963119627,
+        sample_volume_ml=25.00,
+        standard_volume_ml=1.00,
+        standard_concentration=0.100,
+        ion_charge=1,
+    )
+    print(f"  potentiometric standard-addition unknown: {standard_addition_unknown:.3e} M")
 
 
 def demonstrate_edta_complexometry() -> None:
