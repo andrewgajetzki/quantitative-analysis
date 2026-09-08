@@ -32,6 +32,7 @@ The current toolkit focuses on chemical measurement calculations:
 - EDTA alpha fractions, conditional formation constants, pM titration curves, metal indicators, and direct/back/displacement EDTA assays
 - electrochemical cells, Nernst equation, Delta G/K from E, Faraday electrolysis, amp-hours, and electrical energy
 - ion-selective and glass electrodes, selectivity/interference, potentiometric calibration, and standard addition
+- redox oxidation numbers, half-reaction balancing, titration curves, indicators, Gran endpoints, and iodometric/Winkler calculations
 
 ## Project Layout
 
@@ -42,6 +43,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `activity_equilibrium.py` contains Davies activity-corrected acid-base and coupled-equilibrium helpers.
 - `edta.py` contains complexometric EDTA titration, indicator, and assay helpers.
 - `electrochemistry.py` contains cell-potential, Nernst, thermodynamic, electrolysis, battery-capacity, electrical-energy, and ion-selective-electrode helpers.
+- `redox.py` contains redox reaction balancing, equivalents, redox titration, indicator, Gran-plot, and iodometric helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
@@ -50,6 +52,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `tests/test_chem.py` verifies chemistry calculations.
 - `tests/test_equilibrium.py` verifies equilibrium, acid-base, solubility, and thermodynamic calculations.
 - `tests/test_electrochemistry.py` verifies electrochemical cell, Nernst, and electrolysis calculations.
+- `tests/test_redox.py` verifies redox balancing, titration, indicator, endpoint, and iodometric calculations.
 - `tests/test_measurements.py` verifies balance, glassware, temperature, and calibration calculations.
 
 ## Run Examples
@@ -103,6 +106,14 @@ from electrochemistry import (
     mass_from_current_time,
     potentiometric_standard_addition_concentration,
     spontaneous_galvanic_cell,
+)
+from redox import (
+    RedoxCouple,
+    SATURATED_CALOMEL_ELECTRODE_V,
+    balance_half_reaction,
+    combine_half_reactions,
+    redox_equivalence_volume_ml,
+    redox_titration_state,
 )
 from activity_equilibrium import (
     AcidBaseComponent,
@@ -234,6 +245,23 @@ print(
         ion_charge=1,
     )
 )
+
+tin = balance_half_reaction("Sn2+", "Sn4+")
+cerium = balance_half_reaction("Ce4+", "Ce3+")
+print(combine_half_reactions(tin, cerium).equation())
+
+iron = RedoxCouple("Fe3+", "Fe2+", electrons=1, standard_potential_v=0.767)
+cerium = RedoxCouple("Ce4+", "Ce3+", electrons=1, standard_potential_v=1.440)
+state = redox_titration_state(
+    0.100,
+    25.00,
+    0.100,
+    25.00,
+    iron,
+    cerium,
+    reference_electrode_potential_v=SATURATED_CALOMEL_ELECTRODE_V,
+)
+print(redox_equivalence_volume_ml(0.100, 25.00, 0.100, 1, 1), state.cell_voltage_v)
 ```
 
 ## Adding New Analysis Areas

@@ -4,6 +4,8 @@ Keep this file as a scratchpad: import the helpers you need, name each example
 after the concept, and print the result with units.
 """
 
+import math
+
 from formula import Formula
 from equilibrium import (
     classify_ph,
@@ -55,6 +57,19 @@ from electrochemistry import (
     nernst_potential,
     potentiometric_standard_addition_concentration,
     spontaneous_galvanic_cell,
+)
+from redox import (
+    RedoxCouple,
+    SATURATED_CALOMEL_ELECTRODE_V,
+    balance_half_reaction,
+    combine_half_reactions,
+    oxidation_number,
+    redox_equivalence_volume_ml,
+    redox_gran_equivalence_volume,
+    redox_indicator_is_suitable,
+    redox_indicator_transition_range,
+    redox_titration_state,
+    winkler_oxygen_mg_per_l,
 )
 from activity_equilibrium import (
     AcidBaseComponent,
@@ -287,6 +302,69 @@ def demonstrate_electrochemistry() -> None:
     print(f"  potentiometric standard-addition unknown: {standard_addition_unknown:.3e} M")
 
 
+def demonstrate_redox_reactions() -> None:
+    """Show redox balancing, titration curves, indicators, and iodometry."""
+    print("\nRedox reactions and titrations")
+    print(f"  oxidation number of Mn in MnO4-: {oxidation_number('MnO4-', 'Mn'):.0f}")
+
+    permanganate = balance_half_reaction("MnO4-", "Mn2+", medium="acidic")
+    tin = balance_half_reaction("Sn2+", "Sn4+")
+    cerium = balance_half_reaction("Ce4+", "Ce3+")
+    tin_cerium = combine_half_reactions(tin, cerium)
+    print(f"  acidic permanganate half-reaction: {permanganate.equation()}")
+    print(f"  Sn2+/Ce4+ titration reaction: {tin_cerium.equation()}")
+
+    sn_ce_equivalence = redox_equivalence_volume_ml(
+        analyte_molarity=0.00500,
+        analyte_volume_ml=20.00,
+        titrant_molarity=0.0200,
+        analyte_electrons=2,
+        titrant_electrons=1,
+    )
+    print(f"  Ce4+ volume for 20.00 mL of 0.00500 M Sn2+: {sn_ce_equivalence:.2f} mL")
+
+    iron = RedoxCouple("Fe3+", "Fe2+", electrons=1, standard_potential_v=0.767)
+    cerium_couple = RedoxCouple("Ce4+", "Ce3+", electrons=1, standard_potential_v=1.440)
+    for volume_ml in (12.50, 25.00, 30.00):
+        state = redox_titration_state(
+            0.100,
+            25.00,
+            0.100,
+            volume_ml,
+            iron,
+            cerium_couple,
+            reference_electrode_potential_v=SATURATED_CALOMEL_ELECTRODE_V,
+        )
+        print(
+            f"  Fe2+/Ce4+ E at {volume_ml:.2f} mL: "
+            f"{state.indicator_potential_v:.3f} V vs SHE, {state.cell_voltage_v:.3f} V vs SCE"
+        )
+
+    indicator_range = redox_indicator_transition_range(1.06)
+    indicator_ok = redox_indicator_is_suitable(1.1035, 1.06)
+    print(
+        "  redox indicator range for E'=1.06 V: "
+        f"{indicator_range.lower_v:.3f}-{indicator_range.upper_v:.3f} V, suitable: {indicator_ok}"
+    )
+
+    gran_volumes = (12.0, 15.0, 20.0)
+    gran_potentials = tuple(
+        1.440 + 0.0591593496911508 * math.log10((volume - 10.0) / 10.0)
+        for volume in gran_volumes
+    )
+    gran = redox_gran_equivalence_volume(
+        gran_volumes,
+        gran_potentials,
+        formal_potential_v=1.440,
+        electrons_transferred=1,
+        branch="after",
+    )
+    print(f"  redox Gran x-intercept: {gran.equivalence_volume_ml:.2f} mL")
+
+    oxygen_mg_l = winkler_oxygen_mg_per_l(0.0100, 25.00, sample_volume_ml=300.0)
+    print(f"  Winkler dissolved oxygen: {oxygen_mg_l:.2f} mg/L")
+
+
 def demonstrate_edta_complexometry() -> None:
     """Show EDTA conditional constants, titration curves, and back titration."""
     alpha_y4 = edta_y4_fraction_from_ph(10.00)
@@ -427,6 +505,7 @@ if __name__ == "__main__":
     demonstrate_equilibrium()
     demonstrate_activity_corrected_equilibrium()
     demonstrate_electrochemistry()
+    demonstrate_redox_reactions()
     demonstrate_edta_complexometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()
