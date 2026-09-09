@@ -1,4 +1,4 @@
-"""Electrochemistry helpers for cells, Nernst calculations, ISEs, and electrolysis."""
+"""Electrochemistry and electroanalytical technique helpers."""
 
 from __future__ import annotations
 
@@ -80,6 +80,30 @@ class IonInterference:
     activity: float
     selectivity_coefficient: float
     ion_charge: float
+
+
+@dataclass(frozen=True)
+class CoulometricAnalysisResult:
+    """Constant-current coulometric result with optional sample concentration."""
+
+    charge_c: float
+    blank_charge_c: float
+    analyte_charge_c: float
+    moles_electrons: float
+    analyte_moles: float
+    analyte_molarity: float | None
+
+
+@dataclass(frozen=True)
+class ElectroanalyticalEndpoint:
+    """Endpoint found from the intersection of two linear signal branches."""
+
+    endpoint_volume_ml: float
+    endpoint_signal: float
+    before_slope: float
+    before_intercept: float
+    after_slope: float
+    after_intercept: float
 
 
 def standard_cell_potential(
@@ -408,6 +432,345 @@ def potentiometric_standard_addition_concentration(
     return standard_concentration * standard_volume_ml / denominator
 
 
+def coulometric_analyte_moles_from_charge(
+    charge_c: float,
+    electrons_per_mole_analyte: float,
+    current_efficiency: float = 1.0,
+    blank_charge_c: float = 0.0,
+) -> float:
+    """Return analyte moles from coulometric charge and electron stoichiometry."""
+    _require_nonnegative(charge_c, "charge_c")
+    _require_positive(electrons_per_mole_analyte, "electrons_per_mole_analyte")
+    _require_current_efficiency(current_efficiency)
+    _require_nonnegative(blank_charge_c, "blank_charge_c")
+    net_charge = charge_c - blank_charge_c
+    if net_charge < 0:
+        raise ValueError("blank_charge_c cannot exceed charge_c.")
+    return moles_product_from_charge(
+        net_charge * current_efficiency,
+        electrons_per_mole_analyte,
+    )
+
+
+def coulometric_analysis(
+    current_a: float,
+    time_s: float,
+    electrons_per_mole_analyte: float,
+    sample_volume_ml: float | None = None,
+    current_efficiency: float = 1.0,
+    blank_current_a: float = 0.0,
+    blank_time_s: float = 0.0,
+    blank_charge_c: float = 0.0,
+) -> CoulometricAnalysisResult:
+    """Return a constant-current coulometric analysis result."""
+    _require_nonnegative(current_a, "current_a")
+    _require_nonnegative(time_s, "time_s")
+    _require_positive(electrons_per_mole_analyte, "electrons_per_mole_analyte")
+    _require_current_efficiency(current_efficiency)
+    _require_nonnegative(blank_current_a, "blank_current_a")
+    _require_nonnegative(blank_time_s, "blank_time_s")
+    _require_nonnegative(blank_charge_c, "blank_charge_c")
+
+    charge = charge_from_current_time(current_a, time_s)
+    blank_charge = blank_charge_c + charge_from_current_time(blank_current_a, blank_time_s)
+    analyte_charge = charge - blank_charge
+    if analyte_charge < 0:
+        raise ValueError("Blank charge cannot exceed total charge.")
+    effective_charge = analyte_charge * current_efficiency
+    analyte_moles = moles_product_from_charge(effective_charge, electrons_per_mole_analyte)
+    analyte_molarity = None
+    if sample_volume_ml is not None:
+        _require_positive(sample_volume_ml, "sample_volume_ml")
+        analyte_molarity = analyte_moles / (sample_volume_ml / 1000.0)
+
+    return CoulometricAnalysisResult(
+        charge_c=charge,
+        blank_charge_c=blank_charge,
+        analyte_charge_c=effective_charge,
+        moles_electrons=moles_electrons_from_charge(effective_charge),
+        analyte_moles=analyte_moles,
+        analyte_molarity=analyte_molarity,
+    )
+
+
+def coulometric_charge_for_analyte(
+    analyte_moles: float,
+    electrons_per_mole_analyte: float,
+    current_efficiency: float = 1.0,
+) -> float:
+    """Return charge required for a coulometric analyte amount."""
+    _require_nonnegative(analyte_moles, "analyte_moles")
+    _require_positive(electrons_per_mole_analyte, "electrons_per_mole_analyte")
+    _require_current_efficiency(current_efficiency)
+    return charge_for_moles_product(analyte_moles, electrons_per_mole_analyte) / current_efficiency
+
+
+def coulometric_generation_time(
+    analyte_moles: float,
+    current_a: float,
+    electrons_per_mole_analyte: float,
+    current_efficiency: float = 1.0,
+) -> float:
+    """Return time needed to generate or consume analyte coulometrically."""
+    _require_positive(current_a, "current_a")
+    charge = coulometric_charge_for_analyte(
+        analyte_moles,
+        electrons_per_mole_analyte,
+        current_efficiency,
+    )
+    return charge / current_a
+
+
+def diffusion_limited_current(
+    electrons_transferred: float,
+    electrode_area_cm2: float,
+    diffusion_coefficient_cm2_s: float,
+    concentration_mol_l: float,
+    diffusion_layer_thickness_cm: float,
+) -> float:
+    """Return steady-state diffusion-limited current in amperes."""
+    _require_positive(electrons_transferred, "electrons_transferred")
+    _require_positive(electrode_area_cm2, "electrode_area_cm2")
+    _require_positive(diffusion_coefficient_cm2_s, "diffusion_coefficient_cm2_s")
+    _require_nonnegative(concentration_mol_l, "concentration_mol_l")
+    _require_positive(diffusion_layer_thickness_cm, "diffusion_layer_thickness_cm")
+    concentration_mol_cm3 = concentration_mol_l / 1000.0
+    return (
+        electrons_transferred
+        * FARADAY_CONSTANT_C_PER_MOL
+        * electrode_area_cm2
+        * diffusion_coefficient_cm2_s
+        * concentration_mol_cm3
+        / diffusion_layer_thickness_cm
+    )
+
+
+def concentration_from_diffusion_limited_current(
+    limiting_current_a: float,
+    electrons_transferred: float,
+    electrode_area_cm2: float,
+    diffusion_coefficient_cm2_s: float,
+    diffusion_layer_thickness_cm: float,
+) -> float:
+    """Return concentration from a steady-state diffusion-limited current."""
+    _require_nonnegative(limiting_current_a, "limiting_current_a")
+    _require_positive(electrons_transferred, "electrons_transferred")
+    _require_positive(electrode_area_cm2, "electrode_area_cm2")
+    _require_positive(diffusion_coefficient_cm2_s, "diffusion_coefficient_cm2_s")
+    _require_positive(diffusion_layer_thickness_cm, "diffusion_layer_thickness_cm")
+    return (
+        limiting_current_a
+        * diffusion_layer_thickness_cm
+        * 1000.0
+        / (
+            electrons_transferred
+            * FARADAY_CONSTANT_C_PER_MOL
+            * electrode_area_cm2
+            * diffusion_coefficient_cm2_s
+        )
+    )
+
+
+def cottrell_current(
+    electrons_transferred: float,
+    electrode_area_cm2: float,
+    diffusion_coefficient_cm2_s: float,
+    concentration_mol_l: float,
+    time_s: float,
+) -> float:
+    """Return chronoamperometric current from the Cottrell equation."""
+    _require_positive(electrons_transferred, "electrons_transferred")
+    _require_positive(electrode_area_cm2, "electrode_area_cm2")
+    _require_positive(diffusion_coefficient_cm2_s, "diffusion_coefficient_cm2_s")
+    _require_nonnegative(concentration_mol_l, "concentration_mol_l")
+    _require_positive(time_s, "time_s")
+    concentration_mol_cm3 = concentration_mol_l / 1000.0
+    return (
+        electrons_transferred
+        * FARADAY_CONSTANT_C_PER_MOL
+        * electrode_area_cm2
+        * concentration_mol_cm3
+        * math.sqrt(diffusion_coefficient_cm2_s)
+        / math.sqrt(math.pi * time_s)
+    )
+
+
+def concentration_from_cottrell_current(
+    current_a: float,
+    electrons_transferred: float,
+    electrode_area_cm2: float,
+    diffusion_coefficient_cm2_s: float,
+    time_s: float,
+) -> float:
+    """Return concentration from a chronoamperometric Cottrell current."""
+    _require_nonnegative(current_a, "current_a")
+    _require_positive(electrons_transferred, "electrons_transferred")
+    _require_positive(electrode_area_cm2, "electrode_area_cm2")
+    _require_positive(diffusion_coefficient_cm2_s, "diffusion_coefficient_cm2_s")
+    _require_positive(time_s, "time_s")
+    return (
+        current_a
+        * math.sqrt(math.pi * time_s)
+        * 1000.0
+        / (
+            electrons_transferred
+            * FARADAY_CONSTANT_C_PER_MOL
+            * electrode_area_cm2
+            * math.sqrt(diffusion_coefficient_cm2_s)
+        )
+    )
+
+
+def randles_sevcik_peak_current(
+    electrons_transferred: float,
+    electrode_area_cm2: float,
+    diffusion_coefficient_cm2_s: float,
+    concentration_mol_l: float,
+    scan_rate_v_s: float,
+    temperature_k: float = STANDARD_TEMPERATURE_K,
+) -> float:
+    """Return reversible cyclic-voltammetry peak current in amperes."""
+    _require_positive(electrons_transferred, "electrons_transferred")
+    _require_positive(electrode_area_cm2, "electrode_area_cm2")
+    _require_positive(diffusion_coefficient_cm2_s, "diffusion_coefficient_cm2_s")
+    _require_nonnegative(concentration_mol_l, "concentration_mol_l")
+    _require_positive(scan_rate_v_s, "scan_rate_v_s")
+    _require_positive(temperature_k, "temperature_k")
+    concentration_mol_cm3 = concentration_mol_l / 1000.0
+    return (
+        0.4463
+        * electrons_transferred
+        * FARADAY_CONSTANT_C_PER_MOL
+        * electrode_area_cm2
+        * concentration_mol_cm3
+        * math.sqrt(
+            electrons_transferred
+            * FARADAY_CONSTANT_C_PER_MOL
+            * diffusion_coefficient_cm2_s
+            * scan_rate_v_s
+            / (R_J_PER_MOL_K * temperature_k)
+        )
+    )
+
+
+def concentration_from_randles_sevcik_peak_current(
+    peak_current_a: float,
+    electrons_transferred: float,
+    electrode_area_cm2: float,
+    diffusion_coefficient_cm2_s: float,
+    scan_rate_v_s: float,
+    temperature_k: float = STANDARD_TEMPERATURE_K,
+) -> float:
+    """Return concentration from a reversible cyclic-voltammetry peak current."""
+    _require_nonnegative(peak_current_a, "peak_current_a")
+    reference_current = randles_sevcik_peak_current(
+        electrons_transferred,
+        electrode_area_cm2,
+        diffusion_coefficient_cm2_s,
+        concentration_mol_l=1.0,
+        scan_rate_v_s=scan_rate_v_s,
+        temperature_k=temperature_k,
+    )
+    return peak_current_a / reference_current
+
+
+def cyclic_voltammetry_formal_potential(
+    anodic_peak_potential_v: float,
+    cathodic_peak_potential_v: float,
+) -> float:
+    """Return E formal from anodic and cathodic cyclic-voltammetry peaks."""
+    return (anodic_peak_potential_v + cathodic_peak_potential_v) / 2.0
+
+
+def cyclic_voltammetry_peak_separation(
+    anodic_peak_potential_v: float,
+    cathodic_peak_potential_v: float,
+) -> float:
+    """Return positive cyclic-voltammetry peak separation in volts."""
+    return abs(anodic_peak_potential_v - cathodic_peak_potential_v)
+
+
+def reversible_cv_electron_count_from_peak_separation(
+    peak_separation_v: float,
+    temperature_k: float = STANDARD_TEMPERATURE_K,
+) -> float:
+    """Estimate n from the reversible CV relation Delta Ep = 2.303RT/nF."""
+    _require_positive(peak_separation_v, "peak_separation_v")
+    return nernst_log10_slope_v(1.0, temperature_k) / peak_separation_v
+
+
+def voltammetric_standard_addition_concentration(
+    initial_current_a: float,
+    final_current_a: float,
+    sample_volume_ml: float,
+    standard_volume_ml: float,
+    standard_concentration: float,
+    final_volume_ml: float | None = None,
+) -> float:
+    """Return concentration from one voltammetric standard addition."""
+    _require_positive(initial_current_a, "initial_current_a")
+    _require_positive(final_current_a, "final_current_a")
+    _require_positive(sample_volume_ml, "sample_volume_ml")
+    _require_positive(standard_volume_ml, "standard_volume_ml")
+    _require_positive(standard_concentration, "standard_concentration")
+    final_volume = sample_volume_ml + standard_volume_ml
+    if final_volume_ml is not None:
+        _require_positive(final_volume_ml, "final_volume_ml")
+        final_volume = final_volume_ml
+
+    response_ratio = final_current_a / initial_current_a
+    denominator = response_ratio * final_volume - sample_volume_ml
+    if denominator <= 0:
+        raise ValueError("Currents and volumes are inconsistent with standard addition.")
+    return standard_concentration * standard_volume_ml / denominator
+
+
+def amperometric_titration_endpoint(
+    before_endpoint_points: Iterable[tuple[float, float]],
+    after_endpoint_points: Iterable[tuple[float, float]],
+) -> ElectroanalyticalEndpoint:
+    """Return amperometric endpoint from two linear current branches."""
+    return _two_line_endpoint(before_endpoint_points, after_endpoint_points)
+
+
+def conductivity_from_resistance(
+    resistance_ohm: float,
+    cell_constant_cm_inverse: float,
+) -> float:
+    """Return conductivity in S/cm from resistance and cell constant."""
+    _require_positive(resistance_ohm, "resistance_ohm")
+    _require_positive(cell_constant_cm_inverse, "cell_constant_cm_inverse")
+    return cell_constant_cm_inverse / resistance_ohm
+
+
+def resistance_from_conductivity(
+    conductivity_s_cm: float,
+    cell_constant_cm_inverse: float,
+) -> float:
+    """Return resistance in ohms from conductivity and cell constant."""
+    _require_positive(conductivity_s_cm, "conductivity_s_cm")
+    _require_positive(cell_constant_cm_inverse, "cell_constant_cm_inverse")
+    return cell_constant_cm_inverse / conductivity_s_cm
+
+
+def molar_conductivity(
+    conductivity_s_cm: float,
+    concentration_mol_l: float,
+) -> float:
+    """Return molar conductivity in S cm^2/mol."""
+    _require_nonnegative(conductivity_s_cm, "conductivity_s_cm")
+    _require_positive(concentration_mol_l, "concentration_mol_l")
+    return conductivity_s_cm / (concentration_mol_l / 1000.0)
+
+
+def conductometric_titration_endpoint(
+    before_endpoint_points: Iterable[tuple[float, float]],
+    after_endpoint_points: Iterable[tuple[float, float]],
+) -> ElectroanalyticalEndpoint:
+    """Return conductometric endpoint from two linear conductance branches."""
+    return _two_line_endpoint(before_endpoint_points, after_endpoint_points)
+
+
 def nernst_potential(
     standard_potential_v: float,
     electrons_transferred: float,
@@ -660,6 +1023,42 @@ def energy_from_current_voltage_time(
     return electrical_energy_j(charge_from_current_time(current_a, time_s), voltage_v)
 
 
+def _two_line_endpoint(
+    before_endpoint_points: Iterable[tuple[float, float]],
+    after_endpoint_points: Iterable[tuple[float, float]],
+) -> ElectroanalyticalEndpoint:
+    before_slope, before_intercept = _linear_fit_points(before_endpoint_points)
+    after_slope, after_intercept = _linear_fit_points(after_endpoint_points)
+    denominator = before_slope - after_slope
+    if denominator == 0:
+        raise ValueError("Endpoint branches must not be parallel.")
+    endpoint_volume = (after_intercept - before_intercept) / denominator
+    endpoint_signal = before_slope * endpoint_volume + before_intercept
+    return ElectroanalyticalEndpoint(
+        endpoint_volume_ml=endpoint_volume,
+        endpoint_signal=endpoint_signal,
+        before_slope=before_slope,
+        before_intercept=before_intercept,
+        after_slope=after_slope,
+        after_intercept=after_intercept,
+    )
+
+
+def _linear_fit_points(points: Iterable[tuple[float, float]]) -> tuple[float, float]:
+    data = tuple(points)
+    if len(data) < 2:
+        raise ValueError("At least two points are required.")
+    x_mean = sum(point[0] for point in data) / len(data)
+    y_mean = sum(point[1] for point in data) / len(data)
+    ss_xx = sum((point[0] - x_mean) ** 2 for point in data)
+    if ss_xx == 0:
+        raise ValueError("Endpoint volumes must not all be identical.")
+    ss_xy = sum((point[0] - x_mean) * (point[1] - y_mean) for point in data)
+    slope = ss_xy / ss_xx
+    intercept = y_mean - slope * x_mean
+    return slope, intercept
+
+
 def _require_positive(value: float, name: str) -> None:
     if value <= 0:
         raise ValueError(f"{name} must be positive.")
@@ -673,6 +1072,11 @@ def _require_nonnegative(value: float, name: str) -> None:
 def _require_nonzero(value: float, name: str) -> None:
     if value == 0:
         raise ValueError(f"{name} cannot be zero.")
+
+
+def _require_current_efficiency(value: float) -> None:
+    if value <= 0 or value > 1:
+        raise ValueError("current_efficiency must be greater than 0 and at most 1.")
 
 
 def _charge_magnitude(value: float, name: str) -> float:

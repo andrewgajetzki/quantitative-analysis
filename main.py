@@ -43,9 +43,17 @@ from edta import (
 )
 from electrochemistry import (
     amp_hours_from_moles_electrons,
+    amperometric_titration_endpoint,
     cell_potential,
     charge_from_current_time,
+    concentration_from_diffusion_limited_current,
+    conductivity_from_resistance,
+    coulometric_analysis,
+    coulometric_generation_time,
+    cottrell_current,
+    cyclic_voltammetry_formal_potential,
     delta_g_from_cell_potential,
+    diffusion_limited_current,
     electrical_energy_j,
     equilibrium_constant_from_cell_potential,
     fit_ion_selective_calibration,
@@ -54,9 +62,13 @@ from electrochemistry import (
     ion_selective_intercept,
     ion_selective_interference_error_percent,
     mass_from_current_time,
+    molar_conductivity,
     nernst_potential,
     potentiometric_standard_addition_concentration,
+    randles_sevcik_peak_current,
+    reversible_cv_electron_count_from_peak_separation,
     spontaneous_galvanic_cell,
+    voltammetric_standard_addition_concentration,
 )
 from redox import (
     RedoxCouple,
@@ -365,6 +377,69 @@ def demonstrate_redox_reactions() -> None:
     print(f"  Winkler dissolved oxygen: {oxygen_mg_l:.2f} mg/L")
 
 
+def demonstrate_electroanalytical_techniques() -> None:
+    """Show coulometry, voltammetry, amperometry, and conductometry."""
+    print("\nElectroanalytical techniques")
+
+    coulometry = coulometric_analysis(
+        current_a=0.0500,
+        time_s=612.0,
+        electrons_per_mole_analyte=2,
+        sample_volume_ml=25.00,
+    )
+    generation_time = coulometric_generation_time(1.00e-4, 0.0500, electrons_per_mole_analyte=2)
+    print(f"  constant-current coulometry analyte: {coulometry.analyte_molarity:.4f} M")
+    print(f"  time to generate 1.00e-4 mol at 50.0 mA: {generation_time:.1f} s")
+
+    limiting_current = diffusion_limited_current(
+        electrons_transferred=1,
+        electrode_area_cm2=0.100,
+        diffusion_coefficient_cm2_s=7.00e-6,
+        concentration_mol_l=1.00e-3,
+        diffusion_layer_thickness_cm=0.00500,
+    )
+    limiting_concentration = concentration_from_diffusion_limited_current(
+        limiting_current,
+        electrons_transferred=1,
+        electrode_area_cm2=0.100,
+        diffusion_coefficient_cm2_s=7.00e-6,
+        diffusion_layer_thickness_cm=0.00500,
+    )
+    cottrell = cottrell_current(1, 0.0500, 7.00e-6, 1.00e-3, time_s=10.0)
+    print(f"  diffusion-limited current: {limiting_current * 1e6:.2f} microA")
+    print(f"  concentration from limiting current: {limiting_concentration:.3e} M")
+    print(f"  Cottrell current after 10.0 s: {cottrell * 1e6:.2f} microA")
+
+    peak_current = randles_sevcik_peak_current(
+        electrons_transferred=1,
+        electrode_area_cm2=0.0707,
+        diffusion_coefficient_cm2_s=7.60e-6,
+        concentration_mol_l=1.00e-3,
+        scan_rate_v_s=0.100,
+    )
+    standard_addition = voltammetric_standard_addition_concentration(
+        initial_current_a=10.0e-6,
+        final_current_a=27.27272727272727e-6,
+        sample_volume_ml=10.00,
+        standard_volume_ml=1.00,
+        standard_concentration=1.00e-4,
+    )
+    print(f"  reversible CV peak current: {peak_current * 1e6:.2f} microA")
+    print(f"  voltammetric standard-addition unknown: {standard_addition:.2e} M")
+
+    endpoint = amperometric_titration_endpoint(
+        before_endpoint_points=((0.0, 1.0), (5.0, 2.0), (8.0, 2.6)),
+        after_endpoint_points=((12.0, 3.8), (15.0, 5.0), (20.0, 7.0)),
+    )
+    conductivity = conductivity_from_resistance(500.0, cell_constant_cm_inverse=1.000)
+    molar_lambda = molar_conductivity(conductivity, concentration_mol_l=0.0100)
+    cv_formal = cyclic_voltammetry_formal_potential(0.310, 0.250)
+    cv_electrons = reversible_cv_electron_count_from_peak_separation(0.060)
+    print(f"  amperometric titration endpoint: {endpoint.endpoint_volume_ml:.2f} mL")
+    print(f"  conductivity: {conductivity:.4f} S/cm, molar conductivity: {molar_lambda:.0f} S cm^2/mol")
+    print(f"  CV formal potential: {cv_formal:.3f} V, peak-separation n: {cv_electrons:.2f}")
+
+
 def demonstrate_edta_complexometry() -> None:
     """Show EDTA conditional constants, titration curves, and back titration."""
     alpha_y4 = edta_y4_fraction_from_ph(10.00)
@@ -506,6 +581,7 @@ if __name__ == "__main__":
     demonstrate_activity_corrected_equilibrium()
     demonstrate_electrochemistry()
     demonstrate_redox_reactions()
+    demonstrate_electroanalytical_techniques()
     demonstrate_edta_complexometry()
     demonstrate_measurement_corrections()
     demonstrate_preparation_and_dilution()

@@ -33,6 +33,7 @@ The current toolkit focuses on chemical measurement calculations:
 - electrochemical cells, Nernst equation, Delta G/K from E, Faraday electrolysis, amp-hours, and electrical energy
 - ion-selective and glass electrodes, selectivity/interference, potentiometric calibration, and standard addition
 - redox oxidation numbers, half-reaction balancing, titration curves, indicators, Gran endpoints, and iodometric/Winkler calculations
+- electroanalytical coulometry, voltammetry, chronoamperometry, cyclic voltammetry, amperometric endpoints, and conductometry
 
 ## Project Layout
 
@@ -42,7 +43,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `equilibrium.py` contains chemical-equilibrium, acid-base, solubility, and thermodynamic helpers.
 - `activity_equilibrium.py` contains Davies activity-corrected acid-base and coupled-equilibrium helpers.
 - `edta.py` contains complexometric EDTA titration, indicator, and assay helpers.
-- `electrochemistry.py` contains cell-potential, Nernst, thermodynamic, electrolysis, battery-capacity, electrical-energy, and ion-selective-electrode helpers.
+- `electrochemistry.py` contains cell-potential, Nernst, electrolysis, ion-selective-electrode, coulometric, voltammetric, amperometric, and conductometric helpers.
 - `redox.py` contains redox reaction balancing, equivalents, redox titration, indicator, Gran-plot, and iodometric helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
@@ -52,6 +53,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `tests/test_chem.py` verifies chemistry calculations.
 - `tests/test_equilibrium.py` verifies equilibrium, acid-base, solubility, and thermodynamic calculations.
 - `tests/test_electrochemistry.py` verifies electrochemical cell, Nernst, and electrolysis calculations.
+- `tests/test_electroanalytical.py` verifies coulometric, voltammetric, amperometric, and conductometric calculations.
 - `tests/test_redox.py` verifies redox balancing, titration, indicator, endpoint, and iodometric calculations.
 - `tests/test_measurements.py` verifies balance, glassware, temperature, and calibration calculations.
 
@@ -99,13 +101,19 @@ from edta import (
     metal_indicator_color,
 )
 from electrochemistry import (
+    amperometric_titration_endpoint,
     cell_potential,
+    coulometric_analysis,
+    diffusion_limited_current,
     glass_electrode_ph,
     ion_activity_from_potential,
     ion_selective_intercept,
     mass_from_current_time,
+    molar_conductivity,
     potentiometric_standard_addition_concentration,
+    randles_sevcik_peak_current,
     spontaneous_galvanic_cell,
+    voltammetric_standard_addition_concentration,
 )
 from redox import (
     RedoxCouple,
@@ -262,6 +270,15 @@ state = redox_titration_state(
     reference_electrode_potential_v=SATURATED_CALOMEL_ELECTRODE_V,
 )
 print(redox_equivalence_volume_ml(0.100, 25.00, 0.100, 1, 1), state.cell_voltage_v)
+
+coulometry = coulometric_analysis(0.0500, 612.0, 2, sample_volume_ml=25.00)
+print(coulometry.analyte_molarity)
+
+print(diffusion_limited_current(1, 0.100, 7.00e-6, 1.00e-3, 0.00500))
+print(randles_sevcik_peak_current(1, 0.0707, 7.60e-6, 1.00e-3, 0.100))
+print(voltammetric_standard_addition_concentration(10.0e-6, 27.27272727272727e-6, 10.00, 1.00, 1.00e-4))
+print(amperometric_titration_endpoint(((0.0, 1.0), (5.0, 2.0)), ((12.0, 3.8), (20.0, 7.0))).endpoint_volume_ml)
+print(molar_conductivity(0.00200, 0.0100))
 ```
 
 ## Adding New Analysis Areas
