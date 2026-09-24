@@ -22,6 +22,7 @@ The current toolkit focuses on chemical measurement calculations:
 - least-squares calibration curves and inverse prediction
 - detection and quantitation limits
 - standard addition, internal standards, and response factors
+- absorbance/transmittance, Beer's law, photon energy, and spectrophotometric calibration helpers
 - spike recovery, dilution factors, matrix effects, and control-chart decisions
 - equilibrium constants, reaction quotients, and ICE-table equilibrium solving
 - pH, pOH, weak acid/base, conjugate Ka/Kb, buffer, and strong acid/base calculations
@@ -46,6 +47,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `electrochemistry.py` contains cell-potential, Nernst, electrolysis, ion-selective-electrode, coulometric, voltammetric, amperometric, and conductometric helpers.
 - `redox.py` contains redox reaction balancing, equivalents, redox titration, indicator, Gran-plot, and iodometric helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
+- `spectroscopy.py` contains absorbance/transmittance, Beer's-law, electromagnetic-radiation, and photometric-calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
 - `units.py` contains reusable unit converters.
@@ -56,6 +58,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `tests/test_electroanalytical.py` verifies coulometric, voltammetric, amperometric, and conductometric calculations.
 - `tests/test_redox.py` verifies redox balancing, titration, indicator, endpoint, and iodometric calculations.
 - `tests/test_measurements.py` verifies balance, glassware, temperature, and calibration calculations.
+- `tests/test_spectroscopy.py` verifies spectroscopy and photometric-calibration calculations.
 
 ## Run Examples
 
@@ -142,6 +145,19 @@ from measurements import (
     water_density_g_per_ml,
 )
 from solutions import Solution, dilution_volume
+from spectroscopy import (
+    beer_lambert_molar_absorptivity,
+    corrected_absorbance,
+    dilution_corrected_signals,
+    frequency_from_wavelength_nm,
+    molar_absorptivity_from_mass_calibration_slope,
+    percent_transmittance_from_absorbance,
+    photon_energy_kj_per_mol_from_wavelength_nm,
+    protein_molar_absorptivity_a280,
+    standard_addition_from_added_amounts,
+    two_line_endpoint,
+    wavenumber_from_wavelength_nm,
+)
 from stoichiometry import Reaction
 from uncertainty import Measurement, antilog10, format_measurement
 
@@ -198,6 +214,41 @@ print(addition.unknown_concentration)
 
 factor = internal_standard_response_factor(10222, 8477, 3.47, 1.72)
 print(concentration_from_internal_standard(5428, 4431, 2.155, factor))
+
+print(frequency_from_wavelength_nm(562.0))
+print(wavenumber_from_wavelength_nm(562.0))
+print(photon_energy_kj_per_mol_from_wavelength_nm(562.0))
+print(percent_transmittance_from_absorbance(0.822))
+
+corrected_a = corrected_absorbance(0.624, blank_absorbance=0.029)
+print(beer_lambert_molar_absorptivity(corrected_a, 3.96e-4, path_length_cm=1.000))
+
+dna_fit = linear_least_squares([2.5, 5.0, 10.0], [0.080, 0.149, 0.307])
+print(molar_absorptivity_from_mass_calibration_slope(dna_fit.slope, 4568.0))
+print(protein_molar_absorptivity_a280(tryptophan_count=8, tyrosine_count=26, disulfide_count=19))
+
+volumes_ul = [0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 70, 80]
+absorbances = [0.227, 0.256, 0.286, 0.316, 0.345, 0.370, 0.399, 0.422, 0.443, 0.448, 0.449, 0.450, 0.447]
+corrected_signals = dilution_corrected_signals(
+    absorbances,
+    initial_volume=2.025,
+    added_volumes=[volume / 1000.0 for volume in volumes_ul],
+)
+endpoint = two_line_endpoint(
+    list(zip(volumes_ul[:6], corrected_signals[:6])),
+    list(zip(volumes_ul[7:], corrected_signals[7:])),
+)
+print(endpoint.x_value)
+
+addition_by_amount = standard_addition_from_added_amounts(
+    [4.0, 8.0, 12.0, 16.0],
+    [0.800, 1.090, 1.359, 1.637],
+    blank_signal=0.029,
+    sample_aliquot_volume=1.00,
+    total_sample_volume=500.0,
+    sample_mass=1.12,
+)
+print(addition_by_amount.amount_per_sample_mass)
 
 hi_equilibrium = {"HI": 2, "H2": -1, "I2": -1}
 q = reaction_quotient({"HI": 1.0, "H2": 0.10, "I2": 0.10}, hi_equilibrium)

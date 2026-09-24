@@ -111,6 +111,19 @@ from measurements import (
     water_density_g_per_ml,
 )
 from solutions import Solution, dilution_volume, serial_dilution, solute_mass_for_molarity
+from spectroscopy import (
+    beer_lambert_molar_absorptivity,
+    corrected_absorbance,
+    dilution_corrected_signals,
+    frequency_from_wavelength_nm,
+    molar_absorptivity_from_mass_calibration_slope,
+    percent_transmittance_from_absorbance,
+    photon_energy_kj_per_mol_from_wavelength_nm,
+    protein_molar_absorptivity_a280,
+    standard_addition_from_added_amounts,
+    two_line_endpoint,
+    wavenumber_from_wavelength_nm,
+)
 from stoichiometry import Reaction
 from uncertainty import (
     Measurement,
@@ -574,6 +587,51 @@ def demonstrate_quality_assurance() -> None:
     print(f"  control-chart status: {control.status}")
 
 
+def demonstrate_spectroscopy() -> None:
+    """Show spectrophotometry and Beer's-law calculations."""
+    wavelength_nm = 562.0
+    print("\nSpectroscopy")
+    print(
+        f"  562 nm light: nu = {frequency_from_wavelength_nm(wavelength_nm):.3e} Hz, "
+        f"wavenumber = {wavenumber_from_wavelength_nm(wavelength_nm):.1f} cm^-1"
+    )
+    print(f"  photon energy at 562 nm: {photon_energy_kj_per_mol_from_wavelength_nm(wavelength_nm):.2f} kJ/mol")
+    print(f"  percent transmittance for A = 0.822: {percent_transmittance_from_absorbance(0.822):.2f}%")
+
+    corrected_a = corrected_absorbance(0.624, blank_absorbance=0.029)
+    epsilon = beer_lambert_molar_absorptivity(corrected_a, 3.96e-4, path_length_cm=1.000)
+    print(f"  blank-corrected epsilon: {epsilon:.0f} L mol^-1 cm^-1")
+
+    dna_fit = linear_least_squares([2.5, 5.0, 10.0], [0.080, 0.149, 0.307])
+    dna_epsilon = molar_absorptivity_from_mass_calibration_slope(dna_fit.slope, 4568.0)
+    protein_epsilon = protein_molar_absorptivity_a280(tryptophan_count=8, tyrosine_count=26, disulfide_count=19)
+    print(f"  DNA epsilon from ug/mL calibration: {dna_epsilon:.0f} L mol^-1 cm^-1")
+    print(f"  protein A280 epsilon estimate: {protein_epsilon:.0f} L mol^-1 cm^-1")
+
+    volumes_ul = [0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 70, 80]
+    absorbances = [0.227, 0.256, 0.286, 0.316, 0.345, 0.370, 0.399, 0.422, 0.443, 0.448, 0.449, 0.450, 0.447]
+    corrected_signals = dilution_corrected_signals(
+        absorbances,
+        initial_volume=2.025,
+        added_volumes=[volume / 1000.0 for volume in volumes_ul],
+    )
+    endpoint = two_line_endpoint(
+        list(zip(volumes_ul[:6], corrected_signals[:6])),
+        list(zip(volumes_ul[7:], corrected_signals[7:])),
+    )
+    print(f"  photometric endpoint: {endpoint.x_value:.1f} uL")
+
+    addition = standard_addition_from_added_amounts(
+        [4.0, 8.0, 12.0, 16.0],
+        [0.800, 1.090, 1.359, 1.637],
+        blank_signal=0.029,
+        sample_aliquot_volume=1.00,
+        total_sample_volume=500.0,
+        sample_mass=1.12,
+    )
+    print(f"  standard-addition amount: {addition.amount_per_sample_mass:.0f} ug/g")
+
+
 if __name__ == "__main__":
     demonstrate_solution_concepts()
     demonstrate_stoichiometry()
@@ -588,3 +646,4 @@ if __name__ == "__main__":
     demonstrate_experimental_error()
     demonstrate_statistics_and_calibration()
     demonstrate_quality_assurance()
+    demonstrate_spectroscopy()
