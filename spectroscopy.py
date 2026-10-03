@@ -6,7 +6,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 import math
 
-from constants import AVOGADRO, PLANCK_CONSTANT_J_S, SPEED_OF_LIGHT_M_PER_S
+from constants import (
+    AVOGADRO,
+    BOLTZMANN_CONSTANT_J_PER_K,
+    PLANCK_CONSTANT_J_S,
+    SPEED_OF_LIGHT_M_PER_S,
+)
 from measurements import LinearFitResult, linear_least_squares
 
 
@@ -42,6 +47,27 @@ class TwoLineEndpoint:
     first_intercept: float
     second_slope: float
     second_intercept: float
+
+
+@dataclass(frozen=True)
+class StrayLightResult:
+    """Apparent absorbance result when stray light reaches the detector."""
+
+    true_transmittance: float
+    apparent_transmittance: float
+    apparent_absorbance: float
+    concentration_relative_error_percent: float
+
+
+@dataclass(frozen=True)
+class FTIRSampling:
+    """Sampling limits for an evenly sampled interferogram."""
+
+    max_wavenumber_cm_inverse: float
+    max_retardation_cm: float
+    resolution_cm_inverse: float
+    sample_interval_s: float | None = None
+    acquisition_time_s: float | None = None
 
 
 def frequency_from_wavelength_nm(wavelength_nm: float) -> float:
@@ -85,6 +111,59 @@ def photon_energy_kj_per_mol_from_wavelength_nm(wavelength_nm: float) -> float:
     return photon_energy_j_from_wavelength_nm(wavelength_nm) * AVOGADRO / 1000.0
 
 
+def blackbody_spectral_exitance(
+    wavelength_um: float,
+    temperature_k: float,
+    *,
+    per_um: bool = True,
+) -> float:
+    """Return blackbody spectral exitance at one wavelength.
+
+    The result is in W m^-2 um^-1 by default. Set ``per_um=False`` to obtain
+    W m^-3, the SI form per meter of wavelength.
+    """
+    _require_positive(wavelength_um, "wavelength_um")
+    _require_positive(temperature_k, "temperature_k")
+    wavelength_m = wavelength_um * 1.0e-6
+    exponent = PLANCK_CONSTANT_J_S * SPEED_OF_LIGHT_M_PER_S / (
+        wavelength_m * BOLTZMANN_CONSTANT_J_PER_K * temperature_k
+    )
+    spectral_exitance_per_m = (
+        2.0
+        * math.pi
+        * PLANCK_CONSTANT_J_S
+        * SPEED_OF_LIGHT_M_PER_S**2
+        / wavelength_m**5
+        / math.expm1(exponent)
+    )
+    return spectral_exitance_per_m * 1.0e-6 if per_um else spectral_exitance_per_m
+
+
+def integrated_blackbody_exitance(
+    start_wavelength_um: float,
+    end_wavelength_um: float,
+    temperature_k: float,
+    *,
+    intervals: int = 1000,
+) -> float:
+    """Integrate blackbody spectral exitance over a wavelength interval."""
+    _require_positive(start_wavelength_um, "start_wavelength_um")
+    _require_positive(end_wavelength_um, "end_wavelength_um")
+    _require_positive(temperature_k, "temperature_k")
+    if end_wavelength_um <= start_wavelength_um:
+        raise ValueError("end_wavelength_um must exceed start_wavelength_um.")
+    if intervals < 1:
+        raise ValueError("intervals must be at least 1.")
+
+    step = (end_wavelength_um - start_wavelength_um) / intervals
+    total = 0.0
+    for index in range(intervals + 1):
+        wavelength = start_wavelength_um + index * step
+        weight = 0.5 if index in (0, intervals) else 1.0
+        total += weight * blackbody_spectral_exitance(wavelength, temperature_k)
+    return total * step
+
+
 def absorbance_from_transmittance(transmittance: float) -> float:
     """Return absorbance from fractional transmittance."""
     _require_fraction(transmittance, "transmittance")
@@ -121,6 +200,58 @@ def absorbance_from_intensities(transmitted_intensity: float, incident_intensity
 def corrected_absorbance(sample_absorbance: float, blank_absorbance: float = 0.0) -> float:
     """Return blank-corrected absorbance."""
     return sample_absorbance - blank_absorbance
+
+
+def apparent_transmittance_with_stray_light(
+    true_absorbance: float,
+    stray_fraction: float,
+    *,
+    stray_in_blank: bool = True,
+) -> float:
+    """Return apparent transmittance when a fraction of stray light is detected."""
+    _require_nonnegative(true_absorbance, "true_absorbance")
+    _require_nonnegative(stray_fraction, "stray_fraction")
+    true_transmittance = transmittance_from_absorbance(true_absorbance)
+    denominator = 1.0 + stray_fraction if stray_in_blank else 1.0
+    return (true_transmittance + stray_fraction) / denominator
+
+
+def apparent_absorbance_with_stray_light(
+    true_absorbance: float,
+    stray_fraction: float,
+    *,
+    stray_in_blank: bool = True,
+) -> float:
+    """Return apparent absorbance when a fraction of stray light is detected."""
+    return absorbance_from_transmittance(
+        apparent_transmittance_with_stray_light(true_absorbance, stray_fraction, stray_in_blank=stray_in_blank)
+    )
+
+
+def stray_light_error(
+    true_absorbance: float,
+    stray_fraction: float,
+    *,
+    stray_in_blank: bool = True,
+) -> StrayLightResult:
+    """Return apparent transmittance, absorbance, and Beer-law concentration error."""
+    true_transmittance = transmittance_from_absorbance(true_absorbance)
+    apparent_transmittance = apparent_transmittance_with_stray_light(
+        true_absorbance,
+        stray_fraction,
+        stray_in_blank=stray_in_blank,
+    )
+    apparent_absorbance = absorbance_from_transmittance(apparent_transmittance)
+    if true_absorbance == 0:
+        concentration_error = 0.0
+    else:
+        concentration_error = (apparent_absorbance / true_absorbance - 1.0) * 100.0
+    return StrayLightResult(
+        true_transmittance=true_transmittance,
+        apparent_transmittance=apparent_transmittance,
+        apparent_absorbance=apparent_absorbance,
+        concentration_relative_error_percent=concentration_error,
+    )
 
 
 def beer_lambert_absorbance(
@@ -343,6 +474,230 @@ def two_line_endpoint(
         first_intercept=first_fit.intercept,
         second_slope=second_fit.slope,
         second_intercept=second_fit.intercept,
+    )
+
+
+def grating_line_density_from_angles(
+    wavelength_nm: float,
+    order: int,
+    incident_angle_deg: float,
+    diffraction_angle_deg: float,
+    *,
+    output: str = "lines/cm",
+) -> float:
+    """Return grating line density from the signed grating equation."""
+    _require_positive(wavelength_nm, "wavelength_nm")
+    _require_positive(order, "order")
+    spacing_m = order * wavelength_nm * 1.0e-9 / (
+        math.sin(math.radians(incident_angle_deg)) + math.sin(math.radians(diffraction_angle_deg))
+    )
+    if spacing_m <= 0:
+        raise ValueError("Angles and order produce a nonpositive groove spacing.")
+    if output == "lines/cm":
+        return 1.0 / (spacing_m * 100.0)
+    if output == "lines/mm":
+        return 1.0 / (spacing_m * 1000.0)
+    if output == "spacing_m":
+        return spacing_m
+    raise ValueError("output must be 'lines/cm', 'lines/mm', or 'spacing_m'.")
+
+
+def diffraction_angle_deg(
+    wavelength_nm: float,
+    order: int,
+    line_density: float,
+    *,
+    line_density_unit: str = "lines/mm",
+    incident_angle_deg: float = 0.0,
+) -> float:
+    """Return the signed diffraction angle from the grating equation."""
+    _require_positive(wavelength_nm, "wavelength_nm")
+    _require_positive(order, "order")
+    spacing_m = grating_spacing_m(line_density, line_density_unit)
+    sine_value = order * wavelength_nm * 1.0e-9 / spacing_m - math.sin(math.radians(incident_angle_deg))
+    if sine_value < -1.0 or sine_value > 1.0:
+        raise ValueError("No real diffraction angle exists for these values.")
+    return math.degrees(math.asin(sine_value))
+
+
+def grating_spacing_m(line_density: float, unit: str = "lines/mm") -> float:
+    """Return grating spacing in meters from a line density."""
+    _require_positive(line_density, "line_density")
+    if unit == "lines/mm":
+        return 1.0 / (line_density * 1000.0)
+    if unit == "lines/cm":
+        return 1.0 / (line_density * 100.0)
+    if unit == "lines/m":
+        return 1.0 / line_density
+    raise ValueError("unit must be 'lines/mm', 'lines/cm', or 'lines/m'.")
+
+
+def grating_angular_dispersion_deg_per_um(
+    order: int,
+    line_density: float,
+    diffraction_angle_deg_value: float,
+    *,
+    line_density_unit: str = "lines/mm",
+) -> float:
+    """Return grating angular dispersion in degrees per micrometer."""
+    _require_positive(order, "order")
+    spacing_um = grating_spacing_m(line_density, line_density_unit) * 1.0e6
+    cosine = math.cos(math.radians(diffraction_angle_deg_value))
+    if cosine == 0:
+        raise ValueError("Angular dispersion is undefined at 90 degrees.")
+    return order / (spacing_um * cosine) * 180.0 / math.pi
+
+
+def grating_angular_separation_deg(
+    wavelength_1_nm: float,
+    wavelength_2_nm: float,
+    order: int,
+    line_density: float,
+    diffraction_angle_deg_value: float,
+    *,
+    line_density_unit: str = "lines/mm",
+) -> float:
+    """Approximate angular separation between nearby wavelengths."""
+    dispersion = grating_angular_dispersion_deg_per_um(
+        order,
+        line_density,
+        diffraction_angle_deg_value,
+        line_density_unit=line_density_unit,
+    )
+    return dispersion * abs(wavelength_2_nm - wavelength_1_nm) / 1000.0
+
+
+def required_resolving_power(value_1: float, value_2: float) -> float:
+    """Return resolving power needed to separate two nearby spectral values."""
+    delta = abs(value_2 - value_1)
+    if delta == 0:
+        raise ValueError("Spectral values must be distinct.")
+    return ((value_1 + value_2) / 2.0) / delta
+
+
+def resolvable_delta(spectral_value: float, resolving_power: float) -> float:
+    """Return smallest resolvable spacing at a given resolving power."""
+    _require_positive(spectral_value, "spectral_value")
+    _require_positive(resolving_power, "resolving_power")
+    return spectral_value / resolving_power
+
+
+def grating_resolving_power(order: int, illuminated_grooves: float) -> float:
+    """Return grating resolving power, ``R = m N``."""
+    _require_positive(order, "order")
+    _require_positive(illuminated_grooves, "illuminated_grooves")
+    return order * illuminated_grooves
+
+
+def illuminated_grooves(grating_width: float, line_density: float, *, width_unit: str = "cm") -> float:
+    """Return number of grooves illuminated over a grating width."""
+    _require_positive(grating_width, "grating_width")
+    _require_positive(line_density, "line_density")
+    if width_unit == "cm":
+        return grating_width * line_density
+    if width_unit == "mm":
+        return grating_width * line_density
+    raise ValueError("width_unit must be 'cm' or 'mm', matching line_density units.")
+
+
+def fringe_pathlength_cm_from_wavenumbers(
+    fringe_count: float,
+    wavenumber_1_cm: float,
+    wavenumber_2_cm: float,
+    *,
+    refractive_index: float = 1.0,
+) -> float:
+    """Return cell pathlength from interference fringe count and wavenumbers."""
+    _require_positive(fringe_count, "fringe_count")
+    _require_positive(wavenumber_1_cm, "wavenumber_1_cm")
+    _require_positive(wavenumber_2_cm, "wavenumber_2_cm")
+    _require_positive(refractive_index, "refractive_index")
+    delta_wavenumber = abs(wavenumber_2_cm - wavenumber_1_cm)
+    if delta_wavenumber == 0:
+        raise ValueError("wavenumbers must be distinct.")
+    return fringe_count / (2.0 * refractive_index * delta_wavenumber)
+
+
+def fringe_count_between_wavenumbers(
+    pathlength_cm: float,
+    wavenumber_1_cm: float,
+    wavenumber_2_cm: float,
+    *,
+    refractive_index: float = 1.0,
+) -> float:
+    """Return number of interference fringes across a wavenumber interval."""
+    _require_positive(pathlength_cm, "pathlength_cm")
+    _require_positive(refractive_index, "refractive_index")
+    return 2.0 * refractive_index * pathlength_cm * abs(wavenumber_2_cm - wavenumber_1_cm)
+
+
+def ftir_sampling_limits(
+    sampling_interval_cm: float,
+    sample_count: int,
+    *,
+    symmetric: bool = True,
+    mirror_velocity_cm_s: float | None = None,
+) -> FTIRSampling:
+    """Return FTIR wavenumber range, retardation, and resolution estimates."""
+    _require_positive(sampling_interval_cm, "sampling_interval_cm")
+    if sample_count < 2:
+        raise ValueError("sample_count must be at least 2.")
+
+    max_wavenumber = 1.0 / (2.0 * sampling_interval_cm)
+    if symmetric:
+        max_retardation = (sample_count - 1) * sampling_interval_cm / 2.0
+        interval_count = sample_count - 1
+    else:
+        max_retardation = (sample_count - 1) * sampling_interval_cm
+        interval_count = sample_count - 1
+    resolution = 1.0 / max_retardation
+
+    sample_interval = None
+    acquisition_time = None
+    if mirror_velocity_cm_s is not None:
+        _require_positive(mirror_velocity_cm_s, "mirror_velocity_cm_s")
+        sample_interval = sampling_interval_cm / (2.0 * mirror_velocity_cm_s)
+        acquisition_time = interval_count * sample_interval
+
+    return FTIRSampling(
+        max_wavenumber_cm_inverse=max_wavenumber,
+        max_retardation_cm=max_retardation,
+        resolution_cm_inverse=resolution,
+        sample_interval_s=sample_interval,
+        acquisition_time_s=acquisition_time,
+    )
+
+
+def signal_to_noise_after_averaging(single_scan_signal_to_noise: float, scan_count: float) -> float:
+    """Return signal-to-noise ratio after averaging independent scans."""
+    _require_positive(single_scan_signal_to_noise, "single_scan_signal_to_noise")
+    _require_positive(scan_count, "scan_count")
+    return single_scan_signal_to_noise * math.sqrt(scan_count)
+
+
+def scans_required_for_signal_to_noise(
+    current_signal_to_noise: float,
+    target_signal_to_noise: float,
+    *,
+    current_scan_count: float = 1.0,
+) -> float:
+    """Return total scans needed to reach a target signal-to-noise ratio."""
+    _require_positive(current_signal_to_noise, "current_signal_to_noise")
+    _require_positive(target_signal_to_noise, "target_signal_to_noise")
+    _require_positive(current_scan_count, "current_scan_count")
+    return current_scan_count * (target_signal_to_noise / current_signal_to_noise) ** 2
+
+
+def moving_average(values: Iterable[float], window_size: int) -> tuple[float, ...]:
+    """Return a trailing moving average for smoothing noisy instrumental data."""
+    data = _as_tuple(values, "values")
+    if window_size < 1:
+        raise ValueError("window_size must be at least 1.")
+    if window_size > len(data):
+        raise ValueError("window_size cannot exceed number of values.")
+    return tuple(
+        sum(data[index : index + window_size]) / window_size
+        for index in range(len(data) - window_size + 1)
     )
 
 

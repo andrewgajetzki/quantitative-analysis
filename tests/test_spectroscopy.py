@@ -3,21 +3,38 @@ import unittest
 from measurements import linear_least_squares
 from spectroscopy import (
     absorbance_from_percent_transmittance,
+    apparent_absorbance_with_stray_light,
+    blackbody_spectral_exitance,
     beer_lambert_concentration,
     beer_lambert_molar_absorptivity,
     calibration_concentrations_from_stock,
     concentration_from_calibration_signal,
     corrected_absorbance,
+    diffraction_angle_deg,
     dilution_corrected_signals,
+    fringe_pathlength_cm_from_wavenumbers,
+    ftir_sampling_limits,
     frequency_from_wavelength_nm,
+    grating_angular_dispersion_deg_per_um,
+    grating_angular_separation_deg,
+    grating_line_density_from_angles,
+    grating_resolving_power,
+    illuminated_grooves,
+    integrated_blackbody_exitance,
     mass_concentration_from_molar_concentration,
     molar_absorptivity_from_mass_calibration_slope,
     molar_concentration_from_mass_concentration,
+    moving_average,
     percent_transmittance_from_absorbance,
     photon_energy_j_from_wavelength_nm,
     photon_energy_kj_per_mol_from_wavelength_nm,
     protein_molar_absorptivity_a280,
+    required_resolving_power,
+    resolvable_delta,
+    scans_required_for_signal_to_noise,
+    signal_to_noise_after_averaging,
     standard_addition_from_added_amounts,
+    stray_light_error,
     two_line_endpoint,
     wavelength_nm_from_frequency_hz,
     wavelength_nm_from_wavenumber_cm,
@@ -134,6 +151,90 @@ class SpectrophotometricCalibrationTests(unittest.TestCase):
         self.assertAlmostEqual(result.unknown_amount, 7.1583, places=4)
         self.assertAlmostEqual(result.original_sample_amount, 3579.1367, places=4)
         self.assertAlmostEqual(result.amount_per_sample_mass, 3195.6578, places=4)
+
+
+class SpectroscopyInstrumentationTests(unittest.TestCase):
+    def test_blackbody_spectral_exitance_and_integrated_band_power(self):
+        self.assertAlmostEqual(blackbody_spectral_exitance(4.0, 298.0), 2.09279, places=5)
+        self.assertAlmostEqual(blackbody_spectral_exitance(4.0, 77.0), 1.88515e-15, places=20)
+
+        two_micron_band = integrated_blackbody_exitance(1.99, 2.01, 1000.0)
+        ten_micron_band = integrated_blackbody_exitance(9.99, 10.01, 1000.0)
+
+        self.assertAlmostEqual(two_micron_band, 175.7969, places=4)
+        self.assertAlmostEqual(ten_micron_band, 23.2731, places=4)
+        self.assertAlmostEqual(two_micron_band / ten_micron_band, 7.5536, places=4)
+
+    def test_diffraction_grating_density_dispersion_and_resolution(self):
+        density = grating_line_density_from_angles(
+            wavelength_nm=600.0,
+            order=1,
+            incident_angle_deg=40.0,
+            diffraction_angle_deg=-30.0,
+            output="lines/cm",
+        )
+        angle = diffraction_angle_deg(
+            wavelength_nm=600.0,
+            order=1,
+            line_density=density,
+            line_density_unit="lines/cm",
+            incident_angle_deg=40.0,
+        )
+        dispersion = grating_angular_dispersion_deg_per_um(
+            order=1,
+            line_density=1000.0,
+            line_density_unit="lines/cm",
+            diffraction_angle_deg_value=10.0,
+        )
+
+        self.assertAlmostEqual(density, 2379.7935, places=4)
+        self.assertAlmostEqual(angle, -30.0)
+        self.assertAlmostEqual(dispersion, 5.8180, places=4)
+        self.assertAlmostEqual(required_resolving_power(512.23, 512.26), 17074.8333, places=4)
+        self.assertAlmostEqual(resolvable_delta(512.23, 1.0e4), 0.051223)
+
+        grooves = illuminated_grooves(8.0, 1850.0)
+        self.assertAlmostEqual(grooves, 14800.0)
+        self.assertAlmostEqual(grating_resolving_power(4, grooves), 59200.0)
+        self.assertAlmostEqual(
+            grating_angular_separation_deg(511.23, 512.26, 1, 250.0, 30.0, line_density_unit="lines/mm"),
+            0.0170361,
+            places=7,
+        )
+
+    def test_stray_light_biases_apparent_absorbance_and_concentration(self):
+        result = stray_light_error(true_absorbance=1.500, stray_fraction=0.005)
+
+        self.assertAlmostEqual(result.true_transmittance, 0.0316228, places=7)
+        self.assertAlmostEqual(result.apparent_transmittance, 0.0364406, places=7)
+        self.assertAlmostEqual(result.apparent_absorbance, 1.4384148, places=7)
+        self.assertAlmostEqual(result.concentration_relative_error_percent, -4.1057, places=4)
+        self.assertAlmostEqual(apparent_absorbance_with_stray_light(1.000, 0.010), 0.9629287, places=7)
+
+    def test_interference_fringes_and_ftir_sampling(self):
+        pathlength = fringe_pathlength_cm_from_wavenumbers(
+            fringe_count=30,
+            wavenumber_1_cm=1906.0,
+            wavenumber_2_cm=698.0,
+        )
+        sampling = ftir_sampling_limits(
+            sampling_interval_cm=1.2660e-4,
+            sample_count=4096,
+            mirror_velocity_cm_s=0.6328,
+        )
+
+        self.assertAlmostEqual(pathlength, 0.0124172, places=7)
+        self.assertAlmostEqual(pathlength * 1.0e4, 124.1722, places=4)
+        self.assertAlmostEqual(sampling.max_wavenumber_cm_inverse, 3949.4471, places=4)
+        self.assertAlmostEqual(sampling.max_retardation_cm, 0.2592135, places=7)
+        self.assertAlmostEqual(sampling.resolution_cm_inverse, 3.8578, places=4)
+        self.assertAlmostEqual(sampling.sample_interval_s, 0.00010003, places=8)
+        self.assertAlmostEqual(sampling.acquisition_time_s, 0.4096294, places=7)
+
+    def test_signal_averaging_and_moving_average_smoothing(self):
+        self.assertAlmostEqual(signal_to_noise_after_averaging(18.9, 100), 189.0)
+        self.assertAlmostEqual(scans_required_for_signal_to_noise(10.0, 100.0, current_scan_count=5.0), 500.0)
+        self.assertEqual(moving_average([1.0, 2.0, 4.0, 8.0], window_size=2), (1.5, 3.0, 6.0))
 
 
 if __name__ == "__main__":

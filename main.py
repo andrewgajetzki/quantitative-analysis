@@ -112,15 +112,24 @@ from measurements import (
 )
 from solutions import Solution, dilution_volume, serial_dilution, solute_mass_for_molarity
 from spectroscopy import (
+    blackbody_spectral_exitance,
     beer_lambert_molar_absorptivity,
     corrected_absorbance,
     dilution_corrected_signals,
+    fringe_pathlength_cm_from_wavenumbers,
+    ftir_sampling_limits,
     frequency_from_wavelength_nm,
+    grating_line_density_from_angles,
+    grating_resolving_power,
+    illuminated_grooves,
     molar_absorptivity_from_mass_calibration_slope,
     percent_transmittance_from_absorbance,
     photon_energy_kj_per_mol_from_wavelength_nm,
     protein_molar_absorptivity_a280,
+    required_resolving_power,
+    signal_to_noise_after_averaging,
     standard_addition_from_added_amounts,
+    stray_light_error,
     two_line_endpoint,
     wavenumber_from_wavelength_nm,
 )
@@ -601,6 +610,8 @@ def demonstrate_spectroscopy() -> None:
     corrected_a = corrected_absorbance(0.624, blank_absorbance=0.029)
     epsilon = beer_lambert_molar_absorptivity(corrected_a, 3.96e-4, path_length_cm=1.000)
     print(f"  blank-corrected epsilon: {epsilon:.0f} L mol^-1 cm^-1")
+    stray = stray_light_error(true_absorbance=1.500, stray_fraction=0.005)
+    print(f"  A = 1.500 with 0.50% stray light appears as A = {stray.apparent_absorbance:.3f}")
 
     dna_fit = linear_least_squares([2.5, 5.0, 10.0], [0.080, 0.149, 0.307])
     dna_epsilon = molar_absorptivity_from_mass_calibration_slope(dna_fit.slope, 4568.0)
@@ -630,6 +641,27 @@ def demonstrate_spectroscopy() -> None:
         sample_mass=1.12,
     )
     print(f"  standard-addition amount: {addition.amount_per_sample_mass:.0f} ug/g")
+
+    line_density = grating_line_density_from_angles(
+        wavelength_nm=600.0,
+        order=1,
+        incident_angle_deg=40.0,
+        diffraction_angle_deg=-30.0,
+    )
+    resolving_power = grating_resolving_power(4, illuminated_grooves(8.0, 1850.0))
+    print(f"  grating density for 600 nm at 40/-30 degrees: {line_density:.0f} lines/cm")
+    print(f"  required R for 512.23/512.26 nm: {required_resolving_power(512.23, 512.26):.0f}")
+    print(f"  4th-order R for 8.0 cm at 1850 lines/cm: {resolving_power:.0f}")
+
+    pathlength_cm = fringe_pathlength_cm_from_wavenumbers(30, 1906.0, 698.0)
+    ftir = ftir_sampling_limits(sampling_interval_cm=1.2660e-4, sample_count=4096)
+    print(f"  IR fringe pathlength: {pathlength_cm * 1.0e4:.1f} um")
+    print(
+        "  FTIR max wavenumber/resolution: "
+        f"{ftir.max_wavenumber_cm_inverse:.0f}/{ftir.resolution_cm_inverse:.2f} cm^-1"
+    )
+    print(f"  blackbody M_lambda at 4.0 um and 298 K: {blackbody_spectral_exitance(4.0, 298.0):.3f} W m^-2 um^-1")
+    print(f"  S/N after averaging 100 scans from S/N 18.9: {signal_to_noise_after_averaging(18.9, 100):.1f}")
 
 
 if __name__ == "__main__":

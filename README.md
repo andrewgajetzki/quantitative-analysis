@@ -22,7 +22,7 @@ The current toolkit focuses on chemical measurement calculations:
 - least-squares calibration curves and inverse prediction
 - detection and quantitation limits
 - standard addition, internal standards, and response factors
-- absorbance/transmittance, Beer's law, photon energy, and spectrophotometric calibration helpers
+- absorbance/transmittance, Beer's law, photon energy, spectrophotometric calibration, and spectroscopy-instrumentation helpers
 - spike recovery, dilution factors, matrix effects, and control-chart decisions
 - equilibrium constants, reaction quotients, and ICE-table equilibrium solving
 - pH, pOH, weak acid/base, conjugate Ka/Kb, buffer, and strong acid/base calculations
@@ -47,7 +47,7 @@ The current toolkit focuses on chemical measurement calculations:
 - `electrochemistry.py` contains cell-potential, Nernst, electrolysis, ion-selective-electrode, coulometric, voltammetric, amperometric, and conductometric helpers.
 - `redox.py` contains redox reaction balancing, equivalents, redox titration, indicator, Gran-plot, and iodometric helpers.
 - `measurements.py` contains analytical balance, statistics, temperature, and calibration helpers.
-- `spectroscopy.py` contains absorbance/transmittance, Beer's-law, electromagnetic-radiation, and photometric-calibration helpers.
+- `spectroscopy.py` contains absorbance/transmittance, Beer's-law, electromagnetic-radiation, grating, FTIR, blackbody, stray-light, and photometric-calibration helpers.
 - `uncertainty.py` contains significant-figure, rounding, uncertainty-propagation, and error helpers.
 - `stoichiometry.py` contains balanced-reaction and limiting-reagent helpers.
 - `units.py` contains reusable unit converters.
